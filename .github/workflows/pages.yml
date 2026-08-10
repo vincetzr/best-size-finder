@@ -1,0 +1,42 @@
+# Publish, when Pages is set to build from GitHub Actions.
+#
+# There are two ways to serve this and only one of them needs a workflow.
+# "Deploy from a branch" serves index.html from the root of main with nothing
+# else involved; this file is for the other setting, which is the one GitHub's
+# Pages screen now offers first. Having both means whichever source is chosen,
+# the page appears.
+#
+# NOTE: no `enablement: true` on configure-pages. It was tried and refused —
+# "Create Pages site failed: Resource not accessible by integration" — because a
+# workflow's own token cannot create the Pages site. Pages has to be switched on
+# by hand once, whichever source is picked.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4
