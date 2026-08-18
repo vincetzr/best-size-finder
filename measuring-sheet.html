@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>BEST measuring sheet — print at actual size</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .sheet {
+    position: relative;
+    width: 29.7cm; height: 21cm;
+    box-sizing: border-box;
+    font: 400 3.6mm/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #111;
+  }
+  /* THE FRAME. Its INNER edge is what gets measured, so the black must be solid
+     and the corners square — no rounding, no shadow, no border radius. */
+  .frame {
+    position: absolute;
+    left: 1.5499999999999996cm; top: 2.3cm;
+    width: 26.6cm; height: 16.400000000000002cm;
+    background: #000;
+    box-sizing: border-box;
+  }
+  .window {
+    position: absolute;
+    left: 2.8499999999999996cm; top: 3.5999999999999996cm;
+    width: 24cm; height: 13.8cm;
+    background: #fff;
+    box-sizing: border-box;
+  }
+  /**
+   * EVERY WORD OUTSIDE THE FRAME. The white window is what gets measured, and a
+   * line of text inside it is exactly the printed form this sheet exists to
+   * replace: a flood fill of the window breaks on every dark letter. Blank
+   * inside, and the paper has margins going spare.
+   */
+  .say { position: absolute; left: 0; width: 29.7cm; text-align: center; }
+  .say--top { top: 0.55cm; }
+  .say--foot { bottom: 0.5cm; }
+  .say h1 { font-size: 5mm; margin: 0 0 1mm; letter-spacing: .02em; }
+  .say p { margin: 0 auto; max-width: 21.384cm; color: #333; font-size: 3.3mm; }
+  .say small { color: #666; font-size: 2.9mm; }
+  .grip { position: absolute; top: 50%; transform: translateY(-50%); width: 1.2499999999999996cm;
+          text-align: center; font-size: 3mm; color: #888; line-height: 1.2; }
+  .grip--left { left: 0.3cm; }
+  .grip--right { right: 0.3cm; }
+  @media screen {
+    body { background: #eee; padding: 1cm; }
+    .sheet { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.25); }
+    .note { max-width: 29.7cm; margin: 0 auto 1cm; font: 400 14px/1.5 ui-sans-serif, system-ui, sans-serif; color: #333; }
+    .note b { color: #000; }
+  }
+  @media print { .note { display: none; } }
+</style></head>
+<body>
+<div class="note">
+  <p><b>Print this at actual size.</b> In the print dialog set Scale to 100 % (not
+  &ldquo;Fit to page&rdquo;) and Margins to None, on A4, landscape. Its size is the whole point:
+  if the printer shrinks it, every measurement taken with it is wrong by however
+  much it shrank.</p>
+  <p>Then hold it flat against your chest, one hand each side, in the grey bands.
+  It does not matter what you are wearing.</p>
+</div>
+<div class="sheet">
+  <div class="frame"></div>
+  <div class="window"></div>
+  <div class="say say--top">
+    <h1>Hold this flat against your chest</h1>
+    <p>Facing the camera, a hand on each side, in the white bands. Nothing to press.</p>
+  </div>
+  <div class="say say--foot">
+    <small>The white window inside the frame is 24.0 &times; 13.8 cm.
+    Print at 100 % &mdash; not &ldquo;fit to page&rdquo; &mdash; or every measurement taken with it is
+    wrong by however much it shrank. Keep the window itself blank.</small>
+  </div>
+  <div class="grip grip--left">hold<br>here</div>
+  <div class="grip grip--right">hold<br>here</div>
+</div>
+</body></html>
