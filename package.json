@@ -1,0 +1,11 @@
+{
+  "name": "best-size-finder",
+  "private": true,
+  "type": "module",
+  "description": "Measure a customer for a BEST vest from a device camera, without asking their height or weight.",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "e2e": "node test/e2e/run.mjs",
+    "serve": "npx http-server -p 8080 -c-1 ."
+  }
+}
