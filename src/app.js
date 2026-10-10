@@ -32,6 +32,10 @@ import { IrisRuler, agree } from './iris.js';
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has('debug');
+// the tape-check rows are for staff checking the page (FIELD.md), on a link
+// of their own: on every customer's screen they would hand over the last
+// customers' measurements
+const STAFF = params.has('staff');
 
 // A nominal focal length for the rectification. It only has to be roughly
 // right: with the tablet within five degrees of upright, a focal length a
@@ -173,7 +177,7 @@ async function start() {
       return;
     }
   } catch (e) {
-    cue('The measuring model would not load.', String(e && e.message ? e.message : e), { speak: false });
+    showFailure(`The measuring model would not load (${e && e.message ? e.message : e}). Check the connection and start again.`);
     return;
   }
   setStage(S.face ? 'near' : 'level');
@@ -419,6 +423,14 @@ function frameStage(f, ts) {
     cue(mid.x / S.W < 0.5 ? 'Move a step to your left' : 'Move a step to your right', 'Into the middle of the picture.');
     return;
   }
+  // the tracker needs picture all round the trunk: checked here, every frame,
+  // so the cue to move holds until the customer has moved
+  const box = body.trunkBox(lm, S.W, S.H);
+  if (box && (box.x0 < EDGE_MARGIN * S.W || box.x1 > (1 - EDGE_MARGIN) * S.W)) {
+    cue((box.x0 + box.x1) / 2 < S.W / 2 ? 'Move a step to your left' : 'Move a step to your right', 'Your elbows need room in the picture.');
+    bar(0);
+    return;
+  }
   if (!handsOnHipsElbowsOut(lm)) {
     cue('Hands on hips', 'Elbows out. Then stand still.');
     bar(0);
@@ -522,13 +534,8 @@ function enterHop(p) {
   const lm = p.landmarks;
   const box = body.trunkBox(lm, S.W, S.H);
   if (!box) return;
-  // the tracker needs picture all round the trunk, and room to hop into; a box
-  // against the edge would be lost on the first frame, every time
-  if (box.x0 < EDGE_MARGIN * S.W || box.x1 > (1 - EDGE_MARGIN) * S.W) {
-    const left = (box.x0 + box.x1) / 2 < S.W / 2;
-    cue(left ? 'Move a step to your left' : 'Move a step to your right', 'Your elbows need room in the picture.');
-    return;
-  }
+  // (frameStage keeps the box off the edges; this is only a guard)
+  if (box.x0 < EDGE_MARGIN * S.W || box.x1 > (1 - EDGE_MARGIN) * S.W) return;
   const bw = box.x1 - box.x0;
   const bh = box.y1 - box.y0;
   // the region the trunk can move in while hopping; only this is read each frame
@@ -716,7 +723,7 @@ function finishHop() {
   const irisAt = S.iris.scaleAtTrunk({ focalPx: S.camera.focalPx });
   if (irisAt) S.irisCheck = agree({ pxPerMetre: g.pxPerMetre, rel: g.rel }, irisAt);
   cue(heightM ? `You are about ${(heightM * 100).toFixed(0)} cm tall` : 'Got it', heightM ? 'Measured by gravity, in your shoes. If that is close, the scale is right.' : '');
-  setTimeout(() => enterPicture('front'), 3200);
+  setTimeout(() => S.stage === 'hopDone' && S.scale && enterPicture('front'), 3200);
 }
 
 function rawTime(samples, t) {
@@ -728,17 +735,25 @@ function rawTime(samples, t) {
 /** No hops: measure from the eyes, with the margin that deserves. */
 function skipHop(why) {
   const at = S.iris.scaleAtTrunk({ focalPx: S.camera.focalPx });
-  const p = S.lastPose || (S.poseHistory.length && S.poseHistory[S.poseHistory.length - 1].p);
-  if (!at || !p) {
+  // the pose to carry the eyes' scale by is the one they were read in: the
+  // still, head-to-feet frame that started the hops, both heels seen
+  const lm = S.hop && S.hop.restLandmarks;
+  if (!at || !lm) {
     S.result = { failed: why || 'No hops, and the eyes could not be read either.' };
     showFailure(S.result.failed);
     return;
   }
   const rectify = makeRectifier({ ...S.camera, pitchRad: S.attitude ? S.attitude.pitchRad : 0, rollRad: S.attitude ? S.attitude.rollRad : 0 });
-  S.scale = { source: 'iris', pxPerMetre: at.pxPerMetre, rel: at.rel, rectify, noseHeelPx: noseHeel(p.landmarks, rectify), heightM: null };
+  const noseHeelPx = noseHeel(lm, rectify);
+  if (!(noseHeelPx > 0)) {
+    S.result = { failed: why || 'No hops, and the eyes could not be carried to where you stood.' };
+    showFailure(S.result.failed);
+    return;
+  }
+  S.scale = { source: 'iris', pxPerMetre: at.pxPerMetre, rel: at.rel, rectify, noseHeelPx, heightM: null };
   setStage('hopDone'); // out of the hop stage now, so this runs once
   cue('Measuring from your eyes instead', 'A wider margin than hopping gives.');
-  setTimeout(() => enterPicture('front'), 2500);
+  setTimeout(() => S.stage === 'hopDone' && S.scale && enterPicture('front'), 2500);
 }
 
 // ——— the two pictures ———
@@ -943,9 +958,9 @@ function finish() {
     widthCm: S.front.widthCm,
     depthCm: S.side.depthCm,
     twoViewCm: twoView.chestCm,
-    turnCm: turn.ok ? turn.chestCm : null,
+    turnCm: fused ? turn.chestCm : null,
     turnCoverage: turn.coverage,
-    turnWhyNot: turn.ok ? null : turn.reason,
+    turnWhyNot: fused ? null : turn.ok ? `it came to ${Math.round(turn.chestCm)} cm, which no adult chest is` : turn.reason,
     fused,
     scale: { source: sc.source, rel: sc.rel, heightM: sc.heightM },
   };
@@ -957,6 +972,7 @@ function finish() {
 function showFailure(msg) {
   setStage('result');
   if (S.stopFrames) S.stopFrames();
+  if (S.cam) for (const t of S.cam.stream.getTracks()) t.stop();
   $('stage').hidden = true;
   const a = $('answer');
   a.hidden = false;
@@ -1030,15 +1046,15 @@ function renderAnswer() {
     }</p>
     <p class="note mono">clock ${esc(S.hopTiming ? `${S.hopTiming.clock}, ${S.hopTiming.periodMs.toFixed(2)} ms frames, jitter ${S.hopTiming.jitterMs.toFixed(2)} ms${S.hopTiming.regular ? ' (snapped to the frame grid)' : ''}` : '—')}</p>
   </details>
-  <details class="staff" id="staff"><summary>Check against a tape (for staff)</summary>
+  ${STAFF ? `<details class="staff" id="staff"><summary>Check against a tape (for staff)</summary>
     <p class="note">Measure height (in the shoes they hopped in) and chest by tape, before reading the answer above. The row stays on this device. See FIELD.md.</p>
     <p><label>Tape chest, cm <input id="tapeChest" inputmode="decimal" size="6"></label>
        <label>Tape height, cm <input id="tapeHeight" inputmode="decimal" size="6"></label>
        <button type="button" id="saveRow">Save this row</button></p>
     <p><button type="button" id="downloadRows">Download the rows</button> <button type="button" id="clearRows">Clear them</button> <span id="rowCount"></span></p>
-  </details>
+  </details>` : ''}
   <button class="again" onclick="location.reload()">Measure someone else</button>`;
-  wireStaff();
+  if (STAFF) wireStaff();
 }
 
 // ——— staff: rows against a tape, kept on this device only ———
@@ -1059,7 +1075,7 @@ function rowNow(tapeChest, tapeHeight) {
   const R = S.result;
   const sc = S.scale;
   return {
-    when: new Date().toISOString(),
+    when: new Date().toISOString().slice(0, 10), // the day only: a time to the second could tie a row to a customer
     tapeChestCm: tapeChest,
     tapeHeightCm: tapeHeight,
     chestCm: +R.chestCm.toFixed(1),

@@ -43,6 +43,12 @@ await ctx.addInitScript(`window.__scanTruth = ${JSON.stringify({ ...PICTURE, pxP
 await ctx.addInitScript({ path: path.join(here, 'pictures.js') });
 const page = await ctx.newPage();
 const logs = [];
+// "Nothing leaves this device": every request the page makes, anywhere but here
+const external = [];
+page.on('request', (r) => {
+  const u = r.url();
+  if (!u.startsWith(`http://127.0.0.1:${port}/`) && !u.startsWith('data:') && !u.startsWith('blob:')) external.push(u);
+});
 page.on('console', (m) => logs.push(m.text()));
 page.on('pageerror', (e) => logs.push(`PAGE ERROR ${e.message}`));
 await page.goto(`http://127.0.0.1:${port}/scan/index.html`);
@@ -115,6 +121,7 @@ if (state.result) {
     Math.abs(r.turnCm / wantTurn - 1) < 0.02 &&
     state.answer.includes(r.size);
 } else console.log(`pictures: no result (${state.stage}: ${state.cue}${state.failed ? `; ${state.failed}` : ''})`);
-const pass = Math.abs(err) < 0.02 && !(Math.abs(hErr) > 3) && picturesOk;
+console.log(external.length ? `REQUESTS OFF THE DEVICE: ${[...new Set(external)].join(', ')}` : 'no request left the device');
+const pass = Math.abs(err) < 0.02 && !(Math.abs(hErr) > 3) && picturesOk && external.length === 0;
 console.log(pass ? 'PASS' : 'FAIL');
 process.exit(pass ? 0 : 1);

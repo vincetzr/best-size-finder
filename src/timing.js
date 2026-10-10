@@ -27,6 +27,8 @@ export function frameTime(now, meta) {
   return { t: now / 1000, source: 'callback' };
 }
 
+const PROBE_STAMPS = 300;
+
 const quantile = (a, q) => {
   const s = [...a].sort((x, y) => x - y);
   return s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))];
@@ -59,16 +61,21 @@ export function fitFrameGrid(times) {
   // typical gap directly would lose a frame over a few hundred; counting gaps
   // one at a time would miscount wherever two jittered stamps fall half a frame
   // wrong. Every stamp votes here, so neither happens.
-  const span = times[times.length - 1] - times[0];
+  // the search runs over the last few hundred stamps only — a periodogram is
+  // every candidate period against every stamp, and a long recording on a
+  // phone would stall the page for seconds — and the least squares below then
+  // uses them all
+  const probe = times.length > PROBE_STAMPS ? times.slice(-PROBE_STAMPS) : times;
+  const span = probe[probe.length - 1] - probe[0];
   const phaseAt = (p) => {
     let c = 0;
     let s = 0;
-    for (const t of times) {
+    for (const t of probe) {
       const a = (2 * Math.PI * (t - times[0])) / p;
       c += Math.cos(a);
       s += Math.sin(a);
     }
-    return { R: Math.hypot(c, s) / times.length, theta: Math.atan2(s, c) };
+    return { R: Math.hypot(c, s) / probe.length, theta: Math.atan2(s, c) };
   };
   let best = { R: -1, p: P };
   let step = (0.02 * P * P) / Math.max(span, P);
