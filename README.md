@@ -44,9 +44,33 @@ Everybody afterwards is asked nothing, and their height comes out as a
 measurement instead of going in as a question. Stand off the mark and the
 shutter waits rather than answering wrongly.
 
+## The hopping page: nothing asked at all
+
+**`scan/`** (https://vincetzr.github.io/best-size-finder/scan/ once on `main`) measures
+without the known length above. The customer hops five times on the spot. In the
+air they are in free fall, and free fall is 9.81 m/s² for everyone, so the
+acceleration of their trunk in the picture, in pixels per second squared, divided
+by g, is pixels per metre at the body — no card, no mark on the floor, no height
+typed in. Their height comes out as a by-product, which they can check for
+themselves against what they know. The eyes, read close up when they tap Start
+(the iris is 11.7 mm in nearly every adult), give a second, independent scale to
+check it against.
+
+How and why, with the numbers and what is not yet shown: `HOW-IT-MEASURES.md`.
+How to check it against a tape measure on real people: `FIELD.md`.
+
+Unlike `index.html`, this page is built from readable source in this repository —
+`src/` (ES modules, no build step), `sim/` (the simulated hopper it is tested on),
+`test/`:
+
+    npm test                                 # unit tests and the simulator, ~10 s
+    node sim/montecarlo.mjs                  # the accuracy table in HOW-IT-MEASURES.md
+    node test/e2e/cutout.mjs test/e2e/media/duffy.jpg /tmp/hop   # once: cut the person out
+    node test/e2e/run.mjs /tmp/hop           # the real page in Chromium, watching him hop
+
 ## Updating
 
-Built from `vincetzr/product_extractor`:
+`index.html` is built from `vincetzr/product_extractor`:
 
     npx vite build --config vite.finder.config.ts
     python3 scripts/build_preview_finder.py

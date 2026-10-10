@@ -74,6 +74,9 @@ export const DEFAULTS = {
   tuckMm: 0, // trunk moving against the centre of mass in flight (legs tucking)
   tuckShape: 'late', // 'late': before landing, 'sym': through the flight
   headBobMm: 0, // trunk wobble on landing, decaying
+  // what the pose model says about the centre of mass against the trunk:
+  // the true offset (the tuck, undone) plus landmark noise, per frame
+  comNoisePx: 0.5,
 };
 
 /** Quintic Hermite between two (y, v, a) states over duration T. */
@@ -211,7 +214,7 @@ export function simulate(opts = {}) {
       p.trunkHeight + c.y + off,
       p.distance * Math.cos(pitch) + p.driftZ * t, // so the trunk sits near the optical axis when pitched
     ];
-    return { P, flight: c.flight };
+    return { P, flight: c.flight, off };
   };
 
   // where the trunk sits at rest; pxPerMetre is defined there
@@ -275,7 +278,27 @@ export function simulate(opts = {}) {
       v += p.outlierPx * r.normal();
     }
     const t = tNominal + (p.timeJitterMs / 1000) * r.normal();
-    samples.push({ t, u, v });
+    // centre of mass minus trunk, in picture pixels (v down): the trunk sits
+    // `off` metres above the centre of mass, so the centre of mass is `off`
+    // metres below it in the picture
+    const offNow = trunkAt(tCap).off;
+    const comOffsetV = offNow * (f / pos.Z || f / p.distance) + p.comNoisePx * r.normal();
+    samples.push({ t, u, v, comOffsetV });
   }
   return { samples, truth, params: p };
+}
+
+/**
+ * The centre of mass alone, for drawing a video of a hop (test/e2e): height in
+ * metres above standing at any time, the flights, and when it all ends.
+ */
+export function hopTrajectory(opts = {}) {
+  const p = { ...DEFAULTS, ...opts };
+  const r = rng(p.seed);
+  const sched = makeHopSchedule(p, r);
+  return {
+    at: (t) => comHeight(sched, t).y,
+    end: sched.end,
+    flights: sched.phases.filter((x) => x.kind === 'flight').map((x) => ({ t0: x.t0, t1: x.t0 + x.T })),
+  };
 }

@@ -27,6 +27,11 @@ export function frameTime(now, meta) {
   return { t: now / 1000, source: 'callback' };
 }
 
+const quantile = (a, q) => {
+  const s = [...a].sort((x, y) => x - y);
+  return s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))];
+};
+
 const median = (a) => {
   const s = [...a].sort((x, y) => x - y);
   const m = s.length >> 1;
@@ -41,7 +46,12 @@ export function fitFrameGrid(times) {
   if (times.length < 10) return null;
   const dts = [];
   for (let i = 1; i < times.length; i++) dts.push(times[i] - times[i - 1]);
-  let P = median(dts);
+  // the period, roughly, from the shortest gaps: when frames are being lost the
+  // typical gap is two frames or a mix, and a search round it would find a
+  // grid the camera never had (in a browser busy enough to lose every other
+  // frame, a 55 ms "period" for a 33 ms camera)
+  const short = quantile(dts, 0.2);
+  let P = median(dts.filter((d) => d < 1.5 * short));
   if (!(P > 0)) return null;
   // The period is the one that puts every stamp at the same phase: a
   // periodogram over periods within a tenth of the typical gap (so a lost
@@ -99,9 +109,10 @@ export function fitFrameGrid(times) {
     n = times.map((t) => Math.round((t - t0) / P));
   }
   const residual = times.map((t, i) => t - (t0 + P * n[i]));
+  const R = phaseAt(P).R;
   const abs = residual.map(Math.abs);
   const jitter = 1.4826 * median(abs);
-  return { period: P, offset: t0, n, residual, jitter };
+  return { period: P, offset: t0, n, residual, jitter, R };
 }
 
 /**
@@ -111,13 +122,18 @@ export function fitFrameGrid(times) {
  * are. Noisier ones are snapped to the grid only if the scatter is white — the
  * residuals of neighbouring frames uncorrelated — and small against a frame.
  */
-export function regulariseTimes(times) {
-  const grid = fitFrameGrid(times);
+export function regulariseTimes(times, frameNumbers) {
+  const grid = (frameNumbers && gridFromFrameNumbers(times, frameNumbers)) || fitFrameGrid(times);
   if (!grid) return { times, regular: false, jitterMs: NaN, periodMs: NaN };
   const jitterMs = grid.jitter * 1000;
   const out = { times, regular: false, jitterMs, periodMs: grid.period * 1000 };
   if (grid.jitter < 0.0003) return out;
   if (grid.jitter > 0.3 * grid.period) return out; // beyond this, frames could be miscounted
+  // every stamp must clearly share the grid's phase, and no two frames may land
+  // in the same slot; otherwise the grid is a guess, and the real stamps are
+  // better than a guess
+  if (!(grid.R > 0.25)) return { ...out, R: grid.R };
+  for (let i = 1; i < grid.n.length; i++) if (grid.n[i] <= grid.n[i - 1]) return { ...out, collided: true };
   // lag-one autocorrelation of the residuals: a drifting clock or a changing
   // frame rate shows up as long runs of the same sign
   const r = grid.residual;
@@ -131,4 +147,40 @@ export function regulariseTimes(times) {
   const rho = den > 0 ? num / den : 0;
   if (rho > 0.5) return { ...out, rho };
   return { times: grid.n.map((k) => grid.offset + grid.period * k), regular: true, jitterMs, periodMs: grid.period * 1000, rho };
+}
+
+/**
+ * The grid straight from the browser's own frame count, where it has one:
+ * requestVideoFrameCallback's presentedFrames goes up by one for every frame
+ * the camera delivered, so a frame the page was too busy for is a known gap,
+ * and nothing has to be guessed. Only used if it rises strictly and agrees
+ * with the stamps.
+ */
+export function gridFromFrameNumbers(times, frames) {
+  if (!frames || frames.length !== times.length || times.length < 10) return null;
+  for (let i = 0; i < frames.length; i++) if (!Number.isFinite(frames[i])) return null;
+  for (let i = 1; i < frames.length; i++) if (!(frames[i] > frames[i - 1])) return null;
+  const n = frames.map((f) => f - frames[0]);
+  let sn = 0;
+  let st = 0;
+  let snn = 0;
+  let snt = 0;
+  const m = n.length;
+  for (let i = 0; i < m; i++) {
+    sn += n[i];
+    st += times[i];
+    snn += n[i] * n[i];
+    snt += n[i] * times[i];
+  }
+  const det = m * snn - sn * sn;
+  if (!(det > 0)) return null;
+  const P = (m * snt - sn * st) / det;
+  const t0 = (st - P * sn) / m;
+  if (!(P > 0.004 && P < 0.1)) return null;
+  const residual = times.map((t, i) => t - (t0 + P * n[i]));
+  const jitter = 1.4826 * median(residual.map(Math.abs));
+  // a count that does not match the clock (a display slower than the camera,
+  // say) is no grid at all
+  if (!(jitter < 0.3 * P)) return null;
+  return { period: P, offset: t0, n, residual, jitter, R: 1, fromCount: true };
 }

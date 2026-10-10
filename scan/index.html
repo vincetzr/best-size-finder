@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Find your size by hopping — BEST</title>
+<style>
+:root {
+  --accent: #0e5c61; --accent-bright: #14787e; --accent-wash: #e8f1f1;
+  --ink: #16191b; --ink-soft: #4a5155; --ink-faint: #757d82;
+  --paper: #faf8f4; --card: #ffffff; --rule: #e0dbd2; --rule-strong: #c9c2b6;
+  --warn: #8a5a12; --warn-wash: #fdf4e3; --stop: #8f2c22; --stop-wash: #fbeeec;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius: 4px;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { margin: 0; line-height: 1.2; letter-spacing: -0.011em; font-weight: 600; }
+p { margin: 0; }
+.mono { font-family: var(--mono); font-feature-settings: "tnum" 1; }
+button { font: inherit; }
+.page { max-width: 1080px; margin: 0 auto; padding: 0 16px 80px; }
+
+/* intro */
+.intro { padding: 56px 0 32px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+.intro h1 { font-size: clamp(36px, 7vw, 64px); letter-spacing: -.03em; margin-bottom: 18px; }
+.lede { font-size: 19px; color: var(--ink-soft); max-width: 60ch; }
+.lede + .lede { margin-top: 12px; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 32px 0; padding: 0; list-style: none; counter-reset: step; }
+.steps li { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; counter-increment: step; }
+.steps li::before { content: counter(step); display: block; font-family: var(--mono); color: var(--accent); font-size: 13px; margin-bottom: 6px; }
+.steps b { display: block; margin-bottom: 4px; }
+.steps span { color: var(--ink-soft); font-size: 14px; }
+.go { display: inline-flex; align-items: center; gap: 10px; padding: 16px 28px; font-size: 18px; font-weight: 600; background: var(--accent); color: #fff; border: 0; border-radius: 100px; cursor: pointer; }
+.go:hover { background: var(--accent-bright); }
+.go[disabled] { opacity: .6; cursor: default; }
+.fine { color: var(--ink-faint); font-size: 14px; margin-top: 14px; max-width: 62ch; }
+.fine a { color: var(--accent); }
+
+/* the camera stage */
+.stage { position: relative; margin: 16px 0; background: #0b0d0e; border-radius: 8px; overflow: hidden; aspect-ratio: 9 / 16; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); margin-inline: auto; }
+.stage[hidden] { display: none; }
+.stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
+.cue { position: absolute; left: 0; right: 0; top: 0; padding: 18px 16px 28px; background: linear-gradient(rgb(11 13 14 / 82%), rgb(11 13 14 / 0)); color: #fff; text-align: center; }
+.cue__big { font-size: clamp(22px, 5.4vw, 40px); font-weight: 600; line-height: 1.15; letter-spacing: -.01em; }
+.cue__small { font-size: clamp(14px, 3vw, 19px); opacity: .85; margin-top: 6px; }
+.bar { position: absolute; left: 16px; right: 16px; bottom: 16px; height: 8px; border-radius: 8px; background: rgb(255 255 255 / 18%); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: #5fd0c4; transition: width .2s ease; }
+.levelmark { position: absolute; right: 16px; bottom: 36px; width: 92px; height: 92px; border-radius: 50%; border: 2px solid rgb(255 255 255 / 55%); }
+.levelmark::after { content: ""; position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px; border-radius: 50%; border: 1px dashed rgb(255 255 255 / 55%); }
+.levelmark > i { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%; background: #f4c84a; transition: transform .1s linear, background .2s; }
+.levelmark.ok > i { background: #5fd0c4; }
+.levelmark[hidden] { display: none; }
+.hud { position: absolute; left: 12px; bottom: 32px; font: 12px/1.4 var(--mono); color: rgb(255 255 255 / 70%); white-space: pre; pointer-events: none; }
+
+/* the answer */
+.answer { padding: 24px 0; }
+.answer[hidden] { display: none; }
+.verdict { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 24px; }
+.verdict__size { font-size: clamp(40px, 9vw, 72px); font-weight: 650; letter-spacing: -.03em; line-height: 1; }
+.verdict__alt { color: var(--ink-soft); margin-top: 10px; font-size: 18px; }
+.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 20px 0; }
+.figure { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 16px; }
+.figure__k { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); }
+.figure__v { font-family: var(--mono); font-size: 24px; margin-top: 4px; }
+.figure__n { font-size: 13px; color: var(--ink-soft); margin-top: 4px; }
+.note { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; color: var(--ink-soft); margin: 14px 0; max-width: 70ch; }
+.note--warn { border-color: var(--warn); background: var(--warn-wash); padding: 10px 14px; color: var(--ink); }
+table.chart { border-collapse: collapse; width: 100%; max-width: 560px; margin-top: 12px; font-size: 14px; }
+.chart th, .chart td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+.chart td.mono { text-align: right; }
+.chart tr.is-best { background: var(--accent-wash); font-weight: 600; }
+details { margin-top: 18px; }
+summary { cursor: pointer; color: var(--accent); }
+.hops svg { width: 100%; max-width: 640px; height: auto; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); margin-top: 10px; }
+.again { margin-top: 18px; background: none; border: 1px solid var(--rule-strong); border-radius: 100px; padding: 10px 18px; cursor: pointer; }
+.error { background: var(--stop-wash); border-left: 3px solid var(--stop); padding: 12px 16px; margin: 16px 0; }
+.error[hidden] { display: none; }
+@media (min-width: 900px) { .stage { aspect-ratio: auto; height: calc(100vh - 32px); height: calc(100dvh - 32px); } }
+</style>
+</head>
+<body>
+<main class="page">
+  <section class="intro" id="intro">
+    <p class="eyebrow">BEST · vest sizing</p>
+    <h1>Hop five times. That is the tape measure.</h1>
+    <p class="lede">A photograph has no size in it, which is why every sizing app asks how tall you are. This one does not ask anything. While you are in the air you are falling, and everything falls at the same rate — so the camera times you, and gravity tells it how big you are.</p>
+    <p class="lede">No card to hold, no height, no weight. Nothing leaves this device.</p>
+    <ol class="steps">
+      <li><b>Look at the screen</b><span>for a second, close up, while it reads your eyes — a cross-check, nothing more.</span></li>
+      <li><b>Stand the tablet up</b><span>straight, at chest height. A level on the screen says when.</span></li>
+      <li><b>Step back, hands on hips</b><span>until you are in the picture from head to feet.</span></li>
+      <li><b>Hop five times</b><span>small hops on the spot, knees straight — from the ankles.</span></li>
+      <li><b>Arms out, then turn</b><span>a picture facing, and one side on with your arms up.</span></li>
+    </ol>
+    <button class="go" id="start" type="button">Start</button>
+    <p class="fine">Uses the camera, and the tablet's level if it has one. No microphone. Can't hop? It still works — from your eyes alone, with a wider margin, which the answer will say.</p>
+    <div class="error" id="error" hidden></div>
+  </section>
+
+  <section class="stage" id="stage" hidden>
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div class="cue"><p class="cue__big" id="cueBig">Starting…</p><p class="cue__small" id="cueSmall"></p></div>
+    <div class="levelmark" id="level" hidden><i></i></div>
+    <div class="hud" id="hud"></div>
+    <div class="bar"><i id="bar"></i></div>
+  </section>
+
+  <section class="answer" id="answer" hidden></section>
+</main>
+<script type="module" src="../src/app.js"></script>
+</body>
+</html>
