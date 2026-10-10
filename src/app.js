@@ -26,7 +26,7 @@ import { gravityScale } from './gravity.js';
 import { regulariseTimes } from './timing.js';
 import { TemplateTracker } from './track.js';
 import * as body from './body.js';
-import { girthFromWidthDepth, chestError, verdict, rankSizes, CHART } from './sizing.js';
+import { girthFromWidthDepth, chestError, verdict, rankSizes, CHART, CHEST_RANGE } from './sizing.js';
 import { IrisRuler, agree } from './iris.js';
 
 const $ = (id) => document.getElementById(id);
@@ -44,6 +44,7 @@ const LEG_FOLD_LIMIT = 0.03; // legs 3% shorter in the air: knees bent enough to
 const STILL_PX = 1.2; // per frame, mean movement of the shoulders to count as standing still
 const BURST = 7; // frames per picture; the median is kept
 const POSE_TOO_SLOW_MS = 120;
+const EDGE_MARGIN = 0.04; // of the picture's width, kept clear either side of the trunk box
 const SLOW_FPS = 20; // below this many frames a second actually seen, a flight is too few points to fit
 const POSE_SHARE = 0.35; // while hopping, the pose model may use this share of each frame's time, on average
 const ELBOWS_OUT = 0.1; // each elbow at least this many shoulder spans outside its shoulder
@@ -137,13 +138,7 @@ async function start() {
     return;
   }
   S.cam = cam;
-  S.W = cam.video.videoWidth;
-  S.H = cam.video.videoHeight;
-  const diag = Math.hypot(S.W, S.H);
-  S.camera = { focalPx: diag / 2 / Math.tan(((NOMINAL_DIAGONAL_FOV_DEG / 2) * Math.PI) / 180), cx: S.W / 2, cy: S.H / 2 };
-  const ov = $('overlay');
-  ov.width = S.W;
-  ov.height = S.H;
+  setCamera(cam.video.videoWidth, cam.video.videoHeight);
   $('intro').hidden = true;
   $('stage').hidden = false;
   $('stage').scrollIntoView({ block: 'start' });
@@ -176,6 +171,17 @@ async function start() {
   S.stopFrames = everyFrame(cam.video, onFrame);
 }
 
+/** The picture's size, its centre and a nominal focal length, and the overlay to match. */
+function setCamera(W, H) {
+  S.W = W;
+  S.H = H;
+  const diag = Math.hypot(W, H);
+  S.camera = { focalPx: diag / 2 / Math.tan(((NOMINAL_DIAGONAL_FOV_DEG / 2) * Math.PI) / 180), cx: W / 2, cy: H / 2 };
+  const ov = $('overlay');
+  ov.width = W;
+  ov.height = H;
+}
+
 function monotonicMs(t) {
   // MediaPipe wants strictly increasing timestamps
   let ms = t * 1000;
@@ -190,11 +196,18 @@ function onFrame(f) {
   S.clock = f.source;
   const video = S.cam.video;
   if (video.videoWidth !== S.W || video.videoHeight !== S.H) {
-    // the device was turned: start the picture over
-    S.W = video.videoWidth;
-    S.H = video.videoHeight;
-    $('overlay').width = S.W;
-    $('overlay').height = S.H;
+    // the device was turned: a new picture, a new centre, and any scale
+    // measured in the old one belongs to it — so the measuring starts over
+    setCamera(video.videoWidth, video.videoHeight);
+    if (['hop', 'hopDone', 'front', 'side'].includes(S.stage)) {
+      S.scale = null;
+      S.hop = null;
+      S.poseHistory = [];
+      S.frameOkCount = 0;
+      setStage('frame');
+      cue('The tablet was turned', 'Starting the measuring again from the top.');
+      return;
+    }
   }
   const ts = monotonicMs(f.t);
   switch (S.stage) {
@@ -307,12 +320,17 @@ function stillness(n = 10) {
   return s / (h.length - 1);
 }
 
-/** Nose to the lower heel, vertically, in the rectified picture: the body's own ruler between pictures. */
+/**
+ * Nose to the lower visible heel, vertically, in the rectified picture: the
+ * body's own ruler between pictures. Side on, the far heel is usually behind
+ * the near leg and the pose model guesses it, so only heels it can see count.
+ * NaN if there is none.
+ */
 function noseHeel(lm, rectify) {
   const n = body.px(lm[body.LM.nose], S.W, S.H);
-  const hl = body.px(lm[body.LM.leftHeel], S.W, S.H);
-  const hr = body.px(lm[body.LM.rightHeel], S.W, S.H);
-  const heel = hl.y > hr.y ? hl : hr;
+  const heels = [body.LM.leftHeel, body.LM.rightHeel].filter((i) => vis(lm, i)).map((i) => body.px(lm[i], S.W, S.H));
+  if (!heels.length) return NaN;
+  const heel = heels.reduce((a, b) => (b.y > a.y ? b : a));
   const a = rectify(n.x, n.y);
   const b = rectify(heel.x, heel.y);
   return Math.abs(b.v - a.v);
@@ -322,7 +340,6 @@ function noseHeel(lm, rectify) {
 function frameStage(f, ts) {
   const p = poseNow(ts, true);
   drawPose(p);
-  if (S.face && S.iris.ipdMm()) farIris(ts, p);
   if (!p) {
     cue('Step into the picture', 'Two to three metres back, facing the tablet.');
     bar(0);
@@ -365,6 +382,9 @@ function frameStage(f, ts) {
     bar(0);
     return;
   }
+  // the eyes across the room: only now, with the customer head to feet in the
+  // picture and still — before this they may still be at arm's length
+  if (S.face && S.iris.ipdMm()) farIris(ts, p);
   S.frameOkCount = (S.frameOkCount || 0) + 1;
   bar(S.frameOkCount / 15);
   cue('Hold still…', '');
@@ -372,6 +392,21 @@ function frameStage(f, ts) {
     S.frameOkCount = 0;
     enterHop(p);
   }
+}
+
+/**
+ * The legs' length over the trunk's, from one pose: folding the knees shortens
+ * the first and not the second, while stepping nearer the camera lengthens
+ * both alike — so in raw pixels a customer drifting away while hopping would
+ * read as bending their knees, and here does not.
+ */
+function legRatio(lm) {
+  const leg = body.legLength(lm, S.W, S.H);
+  const P = (i) => body.px(lm[i], S.W, S.H);
+  const sh = [P(body.LM.leftShoulder), P(body.LM.rightShoulder)];
+  const hp = [P(body.LM.leftHip), P(body.LM.rightHip)];
+  const trunk = Math.hypot((sh[0].x + sh[1].x - hp[0].x - hp[1].x) / 2, (sh[0].y + sh[1].y - hp[0].y - hp[1].y) / 2);
+  return trunk > 0 ? leg / trunk : NaN;
 }
 
 /**
@@ -439,6 +474,13 @@ function enterHop(p) {
   const lm = p.landmarks;
   const box = body.trunkBox(lm, S.W, S.H);
   if (!box) return;
+  // the tracker needs picture all round the trunk, and room to hop into; a box
+  // against the edge would be lost on the first frame, every time
+  if (box.x0 < EDGE_MARGIN * S.W || box.x1 > (1 - EDGE_MARGIN) * S.W) {
+    const left = (box.x0 + box.x1) / 2 < S.W / 2;
+    cue(left ? 'Move a step to your left' : 'Move a step to your right', 'Your elbows need room in the picture.');
+    return;
+  }
   const bw = box.x1 - box.x0;
   const bh = box.y1 - box.y0;
   // the region the trunk can move in while hopping; only this is read each frame
@@ -452,7 +494,7 @@ function enterHop(p) {
   const g = grab.grayRegion(S.cam.video, roi.x, roi.y, roi.w, roi.h);
   const tracker = new TemplateTracker({ maxShift: 0.7 });
   tracker.setReference(g.gray, g.w, g.h, { x0: box.x0 - g.x, y0: box.y0 - g.y, x1: box.x1 - g.x, y1: box.y1 - g.y });
-  const legs = S.poseHistory.map((h) => body.legLength(h.p.landmarks, S.W, S.H)).filter((x) => x > 0);
+  const legs = S.poseHistory.map((h) => legRatio(h.p.landmarks)).filter((x) => x > 0);
   const restLeg = legs.length ? legs.sort((a, b) => a - b)[legs.length >> 1] : NaN;
   const height = p.mask ? body.bodyHeightPx(lm, p.mask, p.mw, p.mh, S.W, S.H) : null;
   S.hop = {
@@ -492,6 +534,9 @@ function hopStage(f, ts) {
     H.samples.push({ t: f.t, u: H.centre.x + r.dx, v: H.centre.y + r.dy, dx: r.dx, dy: r.dy, score: r.score, presented: f.presented });
     H.lost = 0;
   } else if (++H.lost > 20) {
+    // walking up to read the screen after the last hop, or dropping the hands,
+    // loses the trunk — but the hops are already in the bag
+    if (H.count >= 2) return finishHop();
     cue('Stay in the picture', 'Lost you — back on the spot, hands on hips, and we start again.');
     S.poseHistory = [];
     setStage('frame');
@@ -509,7 +554,7 @@ function hopStage(f, ts) {
     const t0 = performance.now();
     const p = poseNow(ts, false);
     H.poseMs = 0.8 * (H.poseMs || performance.now() - t0) + 0.2 * (performance.now() - t0);
-    if (p) H.poses.push({ t: f.t, leg: body.legLength(p.landmarks, S.W, S.H), hands: handsOnHipsElbowsOut(p.landmarks) });
+    if (p) H.poses.push({ t: f.t, leg: legRatio(p.landmarks), hands: handsOnHipsElbowsOut(p.landmarks) });
   }
   drawHop(H);
   // counting hops, for the screen only (the fit finds them properly)
@@ -527,15 +572,14 @@ function hopStage(f, ts) {
     }
   }
   bar(H.count / HOPS_WANTED);
-  if (H.count === 0) cue(`Hop ${HOPS_WANTED} times`, 'Small hops on the spot. Knees straight, hands on hips.');
-  else if (H.count < HOPS_WANTED) cue(`${H.count}…`, 'Keep going — knees straight.', { speak: false });
+  if (H.count === 0) {
+    if (since() <= 12) cue(`Hop ${HOPS_WANTED} times`, 'Small hops on the spot. Knees straight, hands on hips.');
+    else cue('Hop on the spot', 'Five small hops. Or, if you cannot, wait — it will measure from your eyes instead.');
+  } else if (H.count < HOPS_WANTED) cue(`${H.count}…`, 'Keep going — knees straight.', { speak: false });
   else cue('And stand still', '');
   const quiet = performance.now() - H.lastMoveAt;
   if ((H.count >= HOPS_WANTED && quiet > 700) || H.count >= HOPS_WANTED + 4 || (H.firstHopAt && performance.now() - H.firstHopAt > 15000)) finishHop();
-  else if (!H.firstHopAt && since() > 12) {
-    cue('Hop on the spot', 'Five small hops. Or, if you cannot, wait — it will measure from your eyes instead.');
-    if (since() > 25) skipHop('No hops were seen.');
-  }
+  else if (!H.firstHopAt && since() > 25) skipHop('No hops were seen.');
 }
 
 function finishHop() {
@@ -641,6 +685,7 @@ function skipHop(why) {
   }
   const rectify = makeRectifier({ ...S.camera, pitchRad: S.attitude ? S.attitude.pitchRad : 0, rollRad: S.attitude ? S.attitude.rollRad : 0 });
   S.scale = { source: 'iris', pxPerMetre: at.pxPerMetre, rel: at.rel, rectify, noseHeelPx: noseHeel(p.landmarks, rectify), heightM: null };
+  setStage('hopDone'); // out of the hop stage now, so this runs once
   cue('Measuring from your eyes instead', 'A wider margin than hopping gives.');
   setTimeout(() => enterPicture('front'), 2500);
 }
@@ -691,6 +736,14 @@ function pictureStage(f, ts) {
       return;
     }
   }
+  // the scale is carried by nose-to-heel, so both must really be in view
+  const heelsSeen = [body.LM.leftHeel, body.LM.rightHeel].filter((i) => vis(lm, i));
+  if (!vis(lm, body.LM.nose) || !heelsSeen.length || Math.max(...heelsSeen.map((i) => lm[i].y)) > 0.97) {
+    cue('Step back a little', 'Your feet need to be in the picture.');
+    S.burst = [];
+    bar(0);
+    return;
+  }
   if (stillness(8) > STILL_PX) {
     cue('Hold still…', '', { speak: false });
     S.burst = [];
@@ -719,7 +772,9 @@ function pictureStage(f, ts) {
   }
   const a = sc.rectify(w.left, y);
   const b = sc.rectify(w.right, y);
-  const widthPx = Math.hypot(b.u - a.u, b.v - a.v);
+  // the trunk's sides are upright; in the level picture its width is the
+  // across part of the chord between them (a rolled camera's row is a slant)
+  const widthPx = Math.abs(b.u - a.u);
   const heelY = Math.max(L(body.LM.leftHeel).y, L(body.LM.rightHeel).y);
   S.burst.push({ widthPx, pxPerMetre, y, left: w.left, right: w.right, chestAboveHeelPx: heelY - y, shoulderSpanPx: sh.span });
   drawRow(w.left, w.right, y);
@@ -752,6 +807,10 @@ function finish() {
   if (S.stopFrames) S.stopFrames();
   const sc = S.scale;
   const g = girthFromWidthDepth(S.front.widthCm, S.side.depthCm);
+  if (!(g.chestCm >= CHEST_RANGE[0] && g.chestCm <= CHEST_RANGE[1])) {
+    showFailure(`The pictures added up to a ${Math.round(g.chestCm)} cm chest, which no adult has. An arm was probably in the way. Start again, arms well clear.`);
+    return;
+  }
   // scatter between the frames of each picture adds to the scale's own error
   const measRel = Math.hypot(S.front.spreadCm / S.front.widthCm, S.side.spreadCm / S.side.depthCm) / 2;
   const err = chestError({ chestCm: g.chestCm, scaleRel: Math.hypot(sc.rel, measRel), method: 'two-view' });

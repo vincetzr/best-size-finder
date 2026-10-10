@@ -6,13 +6,19 @@
  * cell, how sure it is that the cell is person. This file turns those two into
  * what the page needs, in image pixels:
  *
- *  - where the hop tracker should look (trunkBox), and whether the customer is
- *    standing as asked: hands on hips, knees straight (handsOnHips, legLength);
+ *  - where the hop tracker should look (trunkBox), and the length of the legs,
+ *    which the page compares in the air and standing to catch bent knees;
  *  - the centre of mass of the whole body, from a standard table of what each
  *    part of a body weighs and where its own centre lies. Only the centre of
- *    mass is in free fall. The trunk is what gets tracked, because it is big and
- *    holds its shape, and comOffset is what has to be added to it: it changes
- *    when the legs fold in the air;
+ *    mass is in free fall, and comOffset is how far it moves against the
+ *    tracked trunk when the legs fold. The page does NOT add it to the hop: on
+ *    the simulator that corrects a tuck exactly with 0.3 px of landmark noise
+ *    and does more harm than good with 0.8, and perspective makes it over-read
+ *    by half (below). The page drops a hop with folded legs instead. Kept,
+ *    tested, for when the pose model is good enough;
+ *  - handsOnHips, which the page has replaced with its own check (app.js:
+ *    handsOnHipsElbowsOut), because wrists near the hip joints is also true of
+ *    arms hanging relaxed, and real hands sit on the waist, above them;
  *  - the chest line, and how wide the person is along it, out of the mask;
  *  - how tall the person stands in the picture, for the display.
  *
@@ -72,11 +78,16 @@ const HANDS_ON_HIPS = 0.45;
 
 /**
  * The chest line, as a fraction of the way from the shoulder line down to the
- * hip line. BEST's tape goes round the fullest part of the chest, a hand's
- * breadth below the shoulders; shoulder joints to hip joints is about half a
- * metre on an adult, so a fifth of it is about 10 cm, a hand's breadth.
+ * hip line. BEST's tape goes round the fullest part of the chest, under the
+ * arms: nipple height on a man and the bust point on a woman, which is where
+ * ANSUR's chest circumference is taken too. That is about 15 cm below the
+ * shoulder joints, three tenths of the half metre down to the hip joints.
+ * (A fifth, the first guess, is armpit height: about 10 cm down, where with the
+ * arms out in a T the underside of the arm meets the trunk and the outline is
+ * least sure of itself — AIST 2003 puts the front of the armpit 10 cm below the
+ * acromion.)
  */
-const CHEST_DOWN = 0.2;
+const CHEST_DOWN = 0.3;
 
 /**
  * Half the width of the band of columns searched for the top of the head, in
@@ -277,9 +288,10 @@ export function centreOfMass(landmarks, W, H) {
 
 /**
  * The centre of mass less the trunk reference point (the mean of the two
- * shoulders and the two hips). The hop fit adds this to the tracked trunk:
+ * shoulders and the two hips). What a hop fit would add to the tracked trunk:
  * when the legs fold in the air the centre of mass rises against the trunk, and
- * only the centre of mass is in free fall. Anything that moves the whole set of
+ * only the centre of mass is in free fall. The page does not use it yet (see
+ * the top of this file). Anything that moves the whole set of
  * landmarks at once — the model's frame-to-frame jitter is mostly that — cancels
  * in the difference.
  */

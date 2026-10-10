@@ -568,11 +568,11 @@ test('legLength: hip to ankle, both legs, shorter with the knees bent', () => {
   assert.ok(Number.isNaN(legLength(figure().slice(0, 27), W, H)));
 });
 
-test('chestRowY: a fifth of the way from the shoulder line to the hip line', () => {
+test('chestRowY: three tenths of the way from the shoulder line to the hip line', () => {
   const sy = at(0, 1.43).y;
   const hy = at(0, 0.91).y;
-  assert.ok(Math.abs(chestRowY(figure(), W, H) - (sy + 0.2 * (hy - sy))) < 1e-9);
-  assert.ok(Math.abs(chestRowY(figure(), W, H) - at(0, 1.43 - 0.2 * 0.52).y) < 1e-9);
+  assert.ok(Math.abs(chestRowY(figure(), W, H) - (sy + 0.3 * (hy - sy))) < 1e-9);
+  assert.ok(Math.abs(chestRowY(figure(), W, H) - at(0, 1.43 - 0.3 * 0.52).y) < 1e-9);
   assert.ok(Number.isNaN(chestRowY([], W, H)));
 });
 
