@@ -585,3 +585,37 @@ export function gravityScale(samples, { attitude = null, camera, rectifierFactor
   // the expected value of cos(pitch) under the assumption is 1 − unknownPitch/2
   return { ok: true, pxPerMetre: fit.accel.mag / (G * (1 - unknownPitch / 2)), rel, rectify, fit, pitchAssumed: true };
 }
+
+/**
+ * FROM THE TRACKED SURFACE TO THE BODY'S MIDDLE.
+ *
+ * The ruler is pixels per metre where the tracked box is: the front of the
+ * trunk. Everything measured with it is read at the body's middle plane —
+ * the outline's edges, side to side and front to back, the top of the head,
+ * the heels — and that is further from the camera, by about half the chest's
+ * depth. At two and a half metres, twelve centimetres is five per cent.
+ *
+ * Not all of the box is in front, though. The tracker follows whatever lines
+ * run across the picture, and for the up-and-down of a hop those are the tops
+ * of the shoulders and the elbows against the room, which are in the middle
+ * plane, and the shirt's own collar, seams and pattern, which are on the
+ * front. A plain shirt is mostly outline; a striped one mostly front. So the
+ * tracked surface is taken as a quarter of the chest's depth ahead of the
+ * middle, plus a centimetre for the collar, and the doubt is the whole of
+ * that range: a seventh of the depth, as a standard deviation. The distance,
+ * which turns centimetres into a share, needs the focal length, which the
+ * page knows only roughly; that adds a little more.
+ *
+ * pxPerMetre and rel are the ruler's, at the tracked surface; depthM the
+ * chest's depth, measured or typical. Returns the ruler at the middle plane.
+ */
+export const TYPICAL_CHEST_DEPTH_M = 0.24;
+export function middlePlane({ pxPerMetre, rel, focalPx, depthM = TYPICAL_CHEST_DEPTH_M, focalRelSd = 0.2 }) {
+  const ahead = 0.25 * depthM + 0.01;
+  const aheadSd = depthM / 7;
+  const zTracked = focalPx / pxPerMetre;
+  const z = zTracked + ahead;
+  const factor = zTracked / z;
+  const aheadRel = Math.hypot(aheadSd, focalRelSd * ahead) / z;
+  return { pxPerMetre: pxPerMetre * factor, rel: Math.hypot(rel, aheadRel), factor, aheadM: ahead, distanceM: z, depthM };
+}

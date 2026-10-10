@@ -11,7 +11,7 @@
  * gravity ruler's scatter falls by about a third at sixty (0.57 to 0.37 per
  * cent on the simulator), and is under one per cent at thirty.
  */
-import { frameTime } from './timing.js';
+import { frameTime, StampCheck } from './timing.js';
 
 /** Why the camera could not be opened, in words a customer can act on. */
 export function cameraError(err) {
@@ -74,24 +74,16 @@ export function closeCamera(stream) {
 export function everyFrame(video, onFrame) {
   let stopped = false;
   if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-    // After a callback that ran long, the next frame's stamp may not be its
-    // own: Safari hands over the newest pixels with the oldest waiting frame's
-    // capture time (MediaPlayerPrivateMediaStreamAVFObjC). That frame is
-    // flagged, and the hop tracker leaves it out.
-    let lastMs = 0;
-    let lastT = NaN;
-    let period = 1 / 30;
+    // a frame whose stamp is older than its pixels is flagged (timing.js,
+    // StampCheck), and the hop tracker leaves it out
+    const check = new StampCheck();
     const step = (now, meta) => {
       if (stopped) return;
       const { t, source } = frameTime(now, meta);
-      if (Number.isFinite(lastT) && t > lastT) period = 0.9 * period + 0.1 * Math.min(0.1, t - lastT);
-      const afterStall = lastMs > 1500 * period;
-      lastT = t;
-      const t0 = performance.now();
+      const staleStamp = source !== 'callback' && check.stale(now / 1000, t);
       try {
-        onFrame({ t, source, now, presented: meta.presentedFrames, width: meta.width, height: meta.height, afterStall });
+        onFrame({ t, source, now, presented: meta.presentedFrames, width: meta.width, height: meta.height, staleStamp });
       } finally {
-        lastMs = performance.now() - t0;
         if (!stopped) video.requestVideoFrameCallback(step);
       }
     };

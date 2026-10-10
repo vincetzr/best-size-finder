@@ -117,3 +117,21 @@ test('sixty frames a second scatters about a third less than thirty', () => {
   const b = run({ fps: 60 });
   assert.ok(b.sd < 0.75 * a.sd, `30fps ${(100 * a.sd).toFixed(2)}%, 60fps ${(100 * b.sd).toFixed(2)}%`);
 });
+
+// ——— from the tracked surface to the body's middle ———
+import { middlePlane } from '../src/gravity.js';
+
+test('the ruler is carried back from the front of the trunk to its middle', () => {
+  // 2.5 m to the shirt, a 24 cm chest: the middle is 7 cm further, so 2.7 per cent fewer pixels to the metre there
+  const f = 1000;
+  const m = middlePlane({ pxPerMetre: f / 2.5, rel: 0.01, focalPx: f, depthM: 0.24 });
+  assert.ok(Math.abs(m.aheadM - 0.07) < 1e-12);
+  assert.ok(Math.abs(m.pxPerMetre - f / 2.57) < 1e-9);
+  assert.ok(Math.abs(m.distanceM - 2.57) < 1e-12);
+  // the doubt over where the tracked lines are is added to the ruler's own
+  const own = Math.hypot(0.24 / 7, 0.2 * 0.07) / 2.57;
+  assert.ok(Math.abs(m.rel - Math.hypot(0.01, own)) < 1e-12);
+  // a deeper chest, a bigger step back; nearer the camera, a bigger share
+  assert.ok(middlePlane({ pxPerMetre: f / 2.5, rel: 0.01, focalPx: f, depthM: 0.34 }).factor < m.factor);
+  assert.ok(middlePlane({ pxPerMetre: f / 1.8, rel: 0.01, focalPx: f, depthM: 0.24 }).factor < m.factor);
+});

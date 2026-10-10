@@ -21,12 +21,12 @@
  */
 import { openCamera, everyFrame, FrameGrabber, cameraError } from './capture.js';
 import { createPose, createFace, readPose, readFace } from './vision.js';
-import { Level, makeRectifier } from './level.js';
-import { gravityScale } from './gravity.js';
+import { Level, makeRectifier, nominalFocalPx } from './level.js';
+import { gravityScale, middlePlane } from './gravity.js';
 import { regulariseTimes } from './timing.js';
 import { TemplateTracker } from './track.js';
 import * as body from './body.js';
-import { girthFromWidthDepth, chestError, chestFromTurn, fuseChests, verdict, rankSizes, CHART, CHEST_RANGE } from './sizing.js';
+import { girthFromWidthDepth, chestError, shapeError, chestFromTurn, viewAngleFromSpan, depthNearSide, fuseChests, verdict, rankSizes, CHART, CHEST_RANGE } from './sizing.js';
 import { IrisRuler, agree } from './iris.js';
 
 const $ = (id) => document.getElementById(id);
@@ -37,11 +37,6 @@ const DEBUG = params.has('debug');
 // customers' measurements
 const STAFF = params.has('staff');
 
-// A nominal focal length for the rectification. It only has to be roughly
-// right: with the tablet within five degrees of upright, a focal length a
-// fifth out costs under 0.6 per cent (test/level.test.mjs). 75 degrees across
-// the diagonal is a phone's or tablet's front camera, give or take.
-const NOMINAL_DIAGONAL_FOV_DEG = 75;
 const LEVEL_TOLERANCE_DEG = 5;
 const HOPS_WANTED = 5;
 const LEG_FOLD_LIMIT = 0.03; // legs 3% shorter (against the trunk) in the air: about a 20° knee fold, ~2 mm of centre of mass
@@ -49,16 +44,34 @@ const LEG_FOLD_LIMIT = 0.03; // legs 3% shorter (against the trunk) in the air: 
 // little above the floor and not always the same amount: a fixed doubt, apart
 // from the scale's (the end-to-end test reads about 1.5 cm short)
 const HEIGHT_LANDMARK_CM = 2;
-const STILL_PX = 1.2; // per frame, mean movement of the shoulders to count as standing still
+// standing still: the shoulders, hips and nose move less than this, in
+// pixels a second, over the last STILL_WINDOW_MS — by time, not by frames, so a
+// 60 fps camera does not take a slow turn for standing still
+const STILL_PX_PER_S = 36;
+const STILL_WINDOW_MS = 400;
 const BURST = 7; // frames per picture; the median is kept
 const POSE_TOO_SLOW_MS = 120;
 const LEVEL_GIVE_UP_S = 20;
+const LEVEL_WILD_MS = 2000; // a roll past 45° held this long: the level reads in a frame this page does not know
 const FRAME_STILL_FRAMES = 15; // still frames, hands on hips, before the hops begin
-// side on: the shoulders look less than this share as far apart as facing,
-// which is about seventy degrees turned (acos 0.35)
-const TURNED_SPAN = 0.35;
-const TURN_STARTED_FACING = 0.85; // the turn's widest shoulder span, at least this share of the front picture's
-const TURN_SETTLED = 0.03; // the span's range over eight frames, as a share of the facing span
+// The turn. The shoulders' horizontal distance apart in the level picture,
+// against facing, r. Side on is where the customer stops turning, never
+// before: the page does not say "hold still" while they are coming round,
+// or it would stop them short, and a squarer chest seen ten degrees short of
+// side on reads several per cent deep. Stopped with r under SIDE_ON_SPAN
+// (83°): side on. Stopped under TURNED_SPAN_MAX (73°): nudged once, for
+// NUDGE_MS, then taken where they are — the pose model may never quite put
+// one shoulder behind the other — with the depth corrected for the angle
+// (depthNearSide).
+const SIDE_ON_SPAN = 0.12;
+const TURNED_SPAN_MAX = 0.3;
+const NUDGE_MS = 1500;
+const TURN_SETTLED = 0.03; // the span's range over a settling window, as a share of the facing span
+const SETTLE_MS = 400;
+const FACING_MS = 350; // arms up, facing, still, this long before the turn begins
+const FACING_MIN_FRAMES = 6;
+const TURN_FACING_MIN = 0.85; // facing: shoulders at least this share as far apart as in the front picture
+const PICTURE_GIVE_UP_S = 45; // a picture nobody can pose for ends the session, with Start again
 const EDGE_MARGIN = 0.04; // of the picture's width, kept clear either side of the trunk box
 const SLOW_FPS = 20; // below this many frames a second actually seen, a flight is too few points to fit
 const POSE_SHARE = 0.35; // while hopping, the pose model may use this share of each frame's time, on average
@@ -111,7 +124,14 @@ function say(text) {
     speechSynthesis.speak(u);
   } catch {}
 }
+/** A message that must stay up a moment, whatever the stage's own cues say next. */
+function announce(big, small = '', ms = 2500) {
+  S.cueHoldUntil = 0;
+  cue(big, small);
+  S.cueHoldUntil = performance.now() + ms;
+}
 function cue(big, small = '', { speak = true } = {}) {
+  if (S.cueHoldUntil && performance.now() < S.cueHoldUntil) return;
   if ($('cueBig').textContent !== big) {
     $('cueBig').textContent = big;
     if (speak) say(big);
@@ -189,8 +209,7 @@ async function start() {
 function setCamera(W, H) {
   S.W = W;
   S.H = H;
-  const diag = Math.hypot(W, H);
-  S.camera = { focalPx: diag / 2 / Math.tan(((NOMINAL_DIAGONAL_FOV_DEG / 2) * Math.PI) / 180), cx: W / 2, cy: H / 2 };
+  S.camera = { focalPx: nominalFocalPx(W, H), cx: W / 2, cy: H / 2 };
   const ov = $('overlay');
   ov.width = W;
   ov.height = H;
@@ -232,7 +251,7 @@ function onFrame(f) {
       S.poseHistory = [];
       S.frameOkCount = 0;
       setStage('frame');
-      cue('The tablet was turned', 'Starting the measuring again from the top.');
+      announce('The tablet was turned', 'Starting the measuring again from the top.');
       return;
     }
   }
@@ -247,8 +266,9 @@ function onFrame(f) {
     case 'hop':
       return hopStage(f, ts);
     case 'front':
-    case 'side':
       return pictureStage(f, ts);
+    case 'side':
+      return sideStage(f, ts);
     default:
   }
 }
@@ -297,10 +317,16 @@ function levelStage(f, ts) {
   mark.querySelector('i').style.transform = `translate(${Math.max(-40, Math.min(40, roll * 4))}px, ${Math.max(-40, Math.min(40, -pitch * 4))}px)`;
   const ok = Math.abs(pitch) < LEVEL_TOLERANCE_DEG && Math.abs(roll) < LEVEL_TOLERANCE_DEG && r.still;
   mark.classList.toggle('ok', ok);
-  cue(
-    ok ? 'That is level' : pitch > 0 ? 'Tilt the top of the tablet back' : 'Tilt the top of the tablet forward',
-    `Tilt ${Math.abs(pitch).toFixed(1)}°, lean ${Math.abs(roll).toFixed(1)}° — under ${LEVEL_TOLERANCE_DEG}° both is fine.`,
-  );
+  // say what is wrong, with a little hysteresis so the words do not flip
+  // round zero and restart the speech every frame
+  const tol = LEVEL_TOLERANCE_DEG;
+  let big;
+  if (ok) big = 'That is level';
+  else if (Math.abs(pitch) >= tol) big = pitch > 0 ? 'Tilt the top of the tablet back' : 'Tilt the top of the tablet forward';
+  else if (Math.abs(roll) >= tol) big = roll > 0 ? 'Straighten it — the left side is low' : 'Straighten it — the right side is low';
+  else big = 'Let go of the tablet';
+  cue(big, `Tilt ${Math.abs(pitch).toFixed(1)}°, lean ${Math.abs(roll).toFixed(1)}° — under ${tol}° both is fine.`, { speak: big !== S.lastLevelCue || ok });
+  S.lastLevelCue = big;
   if (ok) {
     S.levelOkSince ??= performance.now();
     bar((performance.now() - S.levelOkSince) / 800);
@@ -313,7 +339,11 @@ function levelStage(f, ts) {
     bar(0);
     // a level that reads nonsense (a platform reporting in a frame this page does
     // not know) or that nobody can satisfy must not trap the customer
-    if (since() > LEVEL_GIVE_UP_S || Math.abs(roll) > 45) giveUpLevel();
+    // (a tablet being turned to landscape reads past 45° for a moment before
+    // the screen turns with it, so only a reading that stays there counts)
+    if (Math.abs(roll) > 45) S.rollWildSince ??= performance.now();
+    else S.rollWildSince = null;
+    if (since() > LEVEL_GIVE_UP_S || (S.rollWildSince != null && performance.now() - S.rollWildSince > LEVEL_WILD_MS)) giveUpLevel();
   }
 }
 
@@ -324,10 +354,18 @@ function giveUpLevel() {
   setStage('frame');
 }
 
+/**
+ * The device's attitude for the hops: the live reading if it is still, else
+ * the one the level stage accepted. If the level stage gave up, the live
+ * reading even if the stand is still shaking from the hops — a mean of the
+ * last few dozen readings, its pitch good to a fraction of a degree, which is
+ * far better than assuming the pitch is small. Null only with no level at all.
+ */
 function currentAttitude() {
   const r = S.level.read();
-  if (r && r.still) return r;
-  return S.attitude || null;
+  if (r && r.upright && r.still) return r;
+  if (S.attitude) return S.attitude;
+  return r && r.upright && Number.isFinite(r.pitchRad) ? r : null;
 }
 
 // ——— pose, every frame it is needed ———
@@ -337,7 +375,8 @@ function poseNow(ts, wantMask = true) {
   if (p) {
     // landmarks only: a mask is megabytes, and only the frame that reads it needs it
     S.poseHistory.push({ ts, p: { landmarks: p.landmarks } });
-    if (S.poseHistory.length > 30) S.poseHistory.shift();
+    // by time, not count: stillness looks back a fixed time whatever the frame rate
+    while (S.poseHistory.length > 3 && (ts - S.poseHistory[0].ts > RECENT_MAX_MS + 500 || S.poseHistory.length > 240)) S.poseHistory.shift();
   }
   return p;
 }
@@ -351,26 +390,53 @@ function shoulderMid(lm) {
 }
 
 /**
- * Mean movement over the last frames, px per frame, of the shoulders, the hips
- * and the nose, each on its own: someone turning on the spot keeps the point
- * between their shoulders where it was, so that alone would call a turn still.
+ * The pose history back over at least `ms` milliseconds and at least three
+ * poses: on a device that can only run the pose model a couple of times a
+ * second, that is longer than `ms`, up to a limit. Null if there is not that
+ * much yet.
+ */
+const RECENT_MAX_MS = 1500;
+function recentPoses(ms) {
+  const h = S.poseHistory;
+  if (h.length < 3) return null;
+  const end = h[h.length - 1].ts;
+  let i = h.length - 1;
+  while (i > 0 && (end - h[i].ts < ms || h.length - i < 3)) i--;
+  const span = end - h[i].ts;
+  return h.length - i >= 3 && span >= ms && span <= RECENT_MAX_MS ? h.slice(i) : null;
+}
+
+/**
+ * How fast the shoulders, the hips and the nose are moving, each on its own,
+ * in pixels a second over the last STILL_WINDOW_MS: someone turning on the
+ * spot keeps the point between their shoulders where it was, so that alone
+ * would call a turn still. Each point's range over the window, not the sum of
+ * its steps, so the pose model's frame-to-frame jitter does not add up into
+ * movement on a fast camera; and per second, not per frame, so a slow turn
+ * is not called still by a camera that sees it in small steps.
  */
 const STILL_POINTS = [0, 11, 12, 23, 24];
-function stillness(n = 10) {
-  const h = S.poseHistory.slice(-n);
-  if (h.length < n) return Infinity;
-  let s = 0;
-  for (let i = 1; i < h.length; i++) {
-    let m = 0;
-    for (const k of STILL_POINTS) {
-      const a = body.px(h[i - 1].p.landmarks[k], S.W, S.H);
-      const b = body.px(h[i].p.landmarks[k], S.W, S.H);
-      m += Math.hypot(a.x - b.x, a.y - b.y);
+function stillRate(ms = STILL_WINDOW_MS) {
+  const h = recentPoses(ms);
+  if (!h) return Infinity;
+  let sum = 0;
+  for (const k of STILL_POINTS) {
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const q of h) {
+      const a = body.px(q.p.landmarks[k], S.W, S.H);
+      x0 = Math.min(x0, a.x);
+      x1 = Math.max(x1, a.x);
+      y0 = Math.min(y0, a.y);
+      y1 = Math.max(y1, a.y);
     }
-    s += m / STILL_POINTS.length;
+    sum += Math.hypot(x1 - x0, y1 - y0);
   }
-  return s / (h.length - 1);
+  return (1000 * sum) / STILL_POINTS.length / (h[h.length - 1].ts - h[0].ts);
 }
+const isStill = () => stillRate() <= STILL_PX_PER_S;
 
 /**
  * Nose to the lower visible heel, vertically, in the rectified picture: the
@@ -437,8 +503,7 @@ function frameStage(f, ts) {
     bar(0);
     return;
   }
-  const st = stillness(12);
-  if (st > STILL_PX) {
+  if (!isStill()) {
     cue('Now stand still', 'Hands on hips, facing the tablet.');
     bar(0);
     return;
@@ -586,7 +651,9 @@ function hopStage(f, ts) {
   const predict = last ? { dx: last.dx + (prev ? last.dx - prev.dx : 0), dy: last.dy + (prev ? last.dy - prev.dy : 0) } : { dx: 0, dy: 0 };
   const r = H.tracker.track(g.gray, g.w, g.h, predict);
   H.trackMs = 0.9 * (H.trackMs ?? performance.now() - tTrack) + 0.1 * (performance.now() - tTrack);
-  if (r.ok && !f.afterStall) {
+  if (r.ok && f.staleStamp) {
+    // the trunk is there, but this frame's time is not its own (capture.js): left out, not lost
+  } else if (r.ok) {
     H.samples.push({ t: f.t, u: H.centre.x + r.dx, v: H.centre.y + r.dy, dx: r.dx, dy: r.dy, score: r.score, presented: f.presented });
     H.lost = 0;
   } else if (++H.lost > 20) {
@@ -633,7 +700,13 @@ function hopStage(f, ts) {
   bar(H.count / HOPS_WANTED);
   if (H.count === 0) {
     if (since() <= 12) cue(`Hop ${HOPS_WANTED} times`, 'Small hops on the spot. Knees straight, hands on hips.');
-    else cue('Hop on the spot', 'Five small hops. Or, if you cannot, wait — it will measure from your eyes instead.');
+    else
+      cue(
+        'Hop on the spot',
+        S.iris.scaleAtTrunk({ focalPx: S.camera.focalPx })
+          ? 'Five small hops. Or, if you cannot, wait — it will measure from your eyes instead.'
+          : 'Five small hops, knees straight. The page needs them to measure you.',
+      );
   } else if (H.count < HOPS_WANTED) cue(`${H.count}…`, 'Keep going — knees straight.', { speak: false });
   else cue('And stand still', '');
   const quiet = performance.now() - H.lastMoveAt;
@@ -691,7 +764,9 @@ function finishHop() {
       g.message = `This device only kept up with ${Math.round(S.hopTiming.seenFps)} frames a second — too few to time a hop. Close other apps and try again.`;
     cue('Once more', g.message || 'The hops could not be timed.');
     S.hopTries = (S.hopTries || 0) + 1;
+    const attempt = S.hop;
     setTimeout(() => {
+      if (S.stage !== 'hopDone' || S.hop !== attempt) return; // turned, or moved on, since
       if (S.hopTries >= 3) skipHop(g.message);
       else {
         S.poseHistory = [];
@@ -702,16 +777,23 @@ function finishHop() {
   }
   const rest = H.restLandmarks;
   const ref = noseHeel(rest, g.rectify);
+  // the ruler is at the front of the trunk; everything is read at its middle
+  // (gravity.js, middlePlane), with a typical chest's depth until the side
+  // picture measures this one's
+  const mid = middlePlane({ pxPerMetre: g.pxPerMetre, rel: g.rel, focalPx: S.camera.focalPx });
   let heightM = null;
   if (H.restHeight) {
     const a = g.rectify(H.restNoseX, H.restHeight.top);
     const b = g.rectify(H.restNoseX, H.restHeight.bottom);
-    heightM = Math.abs(b.v - a.v) / g.pxPerMetre;
+    heightM = Math.abs(b.v - a.v) / mid.pxPerMetre;
   }
   S.scale = {
     source: 'gravity',
-    pxPerMetre: g.pxPerMetre,
-    rel: g.rel,
+    pxPerMetre: mid.pxPerMetre,
+    rel: mid.rel,
+    trackedPxPerMetre: g.pxPerMetre,
+    trackedRel: g.rel,
+    middle: mid,
     rectify: g.rectify,
     noseHeelPx: ref,
     heightM,
@@ -722,7 +804,7 @@ function finishHop() {
     samples,
   };
   const irisAt = S.iris.scaleAtTrunk({ focalPx: S.camera.focalPx });
-  if (irisAt) S.irisCheck = agree({ pxPerMetre: g.pxPerMetre, rel: g.rel }, irisAt);
+  if (irisAt) S.irisCheck = agree({ pxPerMetre: mid.pxPerMetre, rel: mid.rel }, irisAt);
   cue(heightM ? `You are about ${(heightM * 100).toFixed(0)} cm tall` : 'Got it', heightM ? 'Measured by gravity, in your shoes. If that is close, the scale is right.' : '');
   setTimeout(() => S.stage === 'hopDone' && S.scale && enterPicture('front'), 3200);
 }
@@ -761,12 +843,22 @@ function skipHop(why) {
 function enterPicture(which) {
   S.burst = [];
   S.pictureOk = 0;
-  if (which === 'side') S.turnSamples = [];
+  if (which === 'side') S.turn = { phase: 'facing', facing: [], samples: [] };
   setStage(which);
+}
+
+/** A picture nobody can pose for: stop, say so, and offer Start again. */
+function pictureGiveUp(which) {
+  showFailure(
+    which === 'front'
+      ? 'The front picture needs both arms straight out to the sides for a moment. If that is not possible, a tape measure round the chest is the way.'
+      : 'The turn needs both arms straight up for a few seconds. If that is not possible, a tape measure round the chest is the way.',
+  );
 }
 
 function pictureStage(f, ts) {
   const which = S.stage;
+  if (since() > PICTURE_GIVE_UP_S) return pictureGiveUp(which);
   const p = poseNow(ts, true);
   drawPose(p, which);
   if (!p || !p.mask) {
@@ -787,24 +879,6 @@ function pictureStage(f, ts) {
       S.burst = [];
       return;
     }
-  } else {
-    const nose = L(body.LM.nose);
-    const up = L(body.LM.leftWrist).y < nose.y && L(body.LM.rightWrist).y < nose.y;
-    if (!up) {
-      cue('Both arms straight up', 'Over your head. Then turn slowly to your left.');
-      bar(0);
-      S.burst = [];
-      return;
-    }
-    // every frame of the turn, arms up, is a width at an angle (turnSample)
-    turnSample(p, lm, sh);
-    const turned = S.front && sh.span < TURNED_SPAN * S.front.shoulderSpanPx;
-    if (!turned) {
-      cue('Now turn slowly to your left', 'Arms up, feet where they are, until one shoulder points straight at the tablet.');
-      bar(Math.min(0.9, (S.turnSamples || []).length / 40));
-      S.burst = [];
-      return;
-    }
   }
   // the scale is carried by nose-to-heel, so both must really be in view
   const heelsSeen = [body.LM.leftHeel, body.LM.rightHeel].filter((i) => vis(lm, i));
@@ -814,7 +888,7 @@ function pictureStage(f, ts) {
     bar(0);
     return;
   }
-  if (stillness(8) > STILL_PX || (which === 'side' && !turnSettled())) {
+  if (!isStill()) {
     cue('Hold still…', '', { speak: false });
     S.burst = [];
     bar(0);
@@ -844,9 +918,9 @@ function pictureStage(f, ts) {
   const b = sc.rectify(w.right, y);
   // the trunk's sides are upright; in the level picture its width is the
   // across part of the chord between them (a rolled camera's row is a slant)
-  const widthPx = Math.abs(b.u - a.u);
+  const widthPx = Math.abs(b.u - a.u) * offAxis((a.u + b.u) / 2);
   const heelY = Math.max(L(body.LM.leftHeel).y, L(body.LM.rightHeel).y);
-  S.burst.push({ widthPx, pxPerMetre, y, left: w.left, right: w.right, chestAboveHeelPx: heelY - y, shoulderSpanPx: sh.span });
+  S.burst.push({ widthPx, pxPerMetre, y, left: w.left, right: w.right, chestAboveHeelPx: heelY - y, shoulderSpanPx: sh.span, spanH: shoulderSpanH(lm) });
   drawRow(w.left, w.right, y);
   bar(S.burst.length / BURST);
   cue('Hold still…', '', { speak: false });
@@ -861,76 +935,231 @@ function pictureStage(f, ts) {
       spreadCm: spread,
       chestAboveHeelM: median(S.burst.map((q) => q.chestAboveHeelPx)) / pm,
       shoulderSpanPx: median(S.burst.map((q) => q.shoulderSpanPx)),
+      spanH: median(S.burst.map((q) => q.spanH)),
       distanceRatio: pm / sc.pxPerMetre,
     };
-    say('Got it.');
+    announce('Got it', 'Now both arms straight up, facing the tablet.');
     enterPicture('side');
-  } else {
-    S.side = { depthCm: mid, spreadCm: spread, distanceRatio: pm / sc.pxPerMetre };
-    finish();
   }
 }
 
-/**
- * One frame of the quarter turn: the chest's width at the front picture's
- * chest line, and the angle turned, read from how far apart the shoulders look
- * against how far apart they looked facing (both put at one distance by the
- * nose-to-heel ruler). acos of that ratio is least sure near facing and near
- * side on, which is where a chest's width hardly changes with angle, so the
- * mean width over the turn — which is all Cauchy's formula needs — barely
- * notices (test/sizing.test.mjs: within 2 per cent).
- */
-function turnSample(p, lm, sh) {
-  const sc = S.scale;
-  const nh = noseHeel(lm, sc.rectify);
-  if (!(nh > 0) || !p.mask) return;
-  const ratio = nh / sc.noseHeelPx; // nearer than at the hops by this much
+/** How far apart the shoulders are across the level picture: horizontally only. */
+function shoulderSpanH(lm) {
+  const a = body.px(lm[body.LM.leftShoulder], S.W, S.H);
+  const b = body.px(lm[body.LM.rightShoulder], S.W, S.H);
+  return Math.abs(S.scale.rectify(a.x, a.y).u - S.scale.rectify(b.x, b.y).u);
+}
+
+/** The chest's width in level-picture pixels at the front picture's chest height, given pixels per metre now. */
+function chestWidthAt(p, lm, heelY, pxPerMetre, ratio) {
   const L = (i) => body.px(lm[i], S.W, S.H);
-  const heels = [body.LM.leftHeel, body.LM.rightHeel].filter((i) => vis(lm, i)).map((i) => L(i).y);
-  if (!heels.length) return;
-  const pxPerMetre = sc.pxPerMetre * ratio;
-  const y = Math.max(...heels) - S.front.chestAboveHeelM * pxPerMetre;
+  const sh = shoulderMid(lm);
+  const y = heelY - S.front.chestAboveHeelM * pxPerMetre;
   const hips = [L(body.LM.leftHip), L(body.LM.rightHip)];
   const xc = (sh.x + (hips[0].x + hips[1].x) / 2) / 2;
-  const w = body.widthAtRow(p.mask, p.mw, p.mh, y, xc, S.W, S.H, { rows: 2, maxWidthPx: 1.3 * S.front.shoulderSpanPx * ratio });
-  if (!w.ok) return;
-  const a = sc.rectify(w.left, y);
-  const b = sc.rectify(w.right, y);
-  const widthCm = (100 * Math.abs(b.u - a.u)) / pxPerMetre;
-  (S.turnSamples ||= []).push({ span: sh.span / ratio, widthCm, t: performance.now() });
+  const maxWidthPx = 1.3 * (S.front.shoulderSpanPx / S.front.distanceRatio) * ratio;
+  const w = body.widthAtRow(p.mask, p.mw, p.mh, y, xc, S.W, S.H, { rows: 2, maxWidthPx });
+  if (!w.ok) return null;
+  const a = S.scale.rectify(w.left, y);
+  const b = S.scale.rectify(w.right, y);
+  return { widthPx: Math.abs(b.u - a.u) * offAxis((a.u + b.u) / 2), left: w.left, right: w.right, y };
 }
 
 /**
- * Has the turn stopped? People slow down as they come round to side on, and
- * a slow last few degrees passes for standing still — and a chest at eighty
- * degrees is a few per cent deeper than side on. So the side picture also
- * waits for the shoulders' apparent span to stop shrinking.
+ * cos of how far off the camera's axis a point of the level picture is seen,
+ * horizontally, at rectified column u. The gravity ruler is pixels per metre
+ * up and down at the body; a customer standing off to one side of the
+ * camera's line has their width across the line of sight drawn wider than
+ * that by 1/cos, and is turned that much to it when they face the tablet.
+ * The focal length is nominal, but it enters only through a cosine.
  */
-function turnSettled(n = 8) {
-  const h = S.poseHistory.slice(-n);
-  if (h.length < n || !S.front) return false;
-  const spans = h.map((x) => shoulderMid(x.p.landmarks).span);
-  return Math.max(...spans) - Math.min(...spans) < TURN_SETTLED * S.front.shoulderSpanPx;
+function offAxis(u) {
+  return 1 / Math.hypot(1, (u - S.camera.cx) / S.camera.focalPx);
 }
 
 /**
- * The turn's samples with their angles, against the widest the shoulders were
- * seen during it. A turn that began already part way round never showed the
- * shoulders' full span, and every angle against it would be too small; so
- * that widest span must be near the front picture's (both put at the hops'
- * distance), or there are no angles and the turn is not used.
+ * Has the turn stopped? The shoulders' span, over the last `ms`, has stopped
+ * changing. People slow as they come round to side on, and a slow last few
+ * degrees must not pass for a stop: a chest at eighty degrees is a few per
+ * cent deeper than side on. By time, not frames, for the same reason as
+ * stillRate.
  */
-function turnAngles() {
-  const q = S.turnSamples || [];
-  if (q.length < 8) return [];
-  const spans = q.map((x) => x.span).sort((a, b) => a - b);
-  const facing = spans[Math.floor(0.9 * (spans.length - 1))]; // near the widest, not one noisy frame
-  const frontSpan = S.front.shoulderSpanPx / S.front.distanceRatio;
-  if (facing < TURN_STARTED_FACING * frontSpan) {
-    S.turnStartedLate = true;
-    return [];
+function turnSettled(ms) {
+  const h = recentPoses(ms);
+  const T = S.turn;
+  if (!h || !T || !T.facingSpan) return false;
+  const spans = h.map((x) => shoulderSpanH(x.p.landmarks));
+  return Math.max(...spans) - Math.min(...spans) < TURN_SETTLED * T.facingSpan;
+}
+
+/**
+ * The side: arms up facing the tablet, still for a moment; then a slow
+ * quarter turn, every frame of it a width at an angle; then side on, still,
+ * for the depth.
+ *
+ * The facing moment fixes two things for the whole turn. How far apart the
+ * shoulders look facing, which every angle is read against. And how near the
+ * customer stands: one distance for the whole turn, because they turn with
+ * their feet where they are, and the nose-to-heel ruler does not survive a
+ * turn — side on the nose is level with the body's axis and the near heel is
+ * half a stance nearer the camera, so it would grow a few per cent with no
+ * step taken and read every width small.
+ */
+function sideStage(f, ts) {
+  const T = S.turn;
+  if (since() > PICTURE_GIVE_UP_S) return pictureGiveUp('side');
+  const p = poseNow(ts, true);
+  drawPose(p);
+  if (!p || !p.mask) {
+    cue('Step back into the picture', '');
+    return;
   }
-  return q.map((x) => ({ angle: Math.acos(Math.min(1, x.span / facing)), widthCm: x.widthCm }));
+  const sc = S.scale;
+  const lm = p.landmarks;
+  const L = (i) => body.px(lm[i], S.W, S.H);
+  const nose = L(body.LM.nose);
+  if (!(L(body.LM.leftWrist).y < nose.y && L(body.LM.rightWrist).y < nose.y)) {
+    if (T.phase === 'facing') {
+      T.facing = [];
+      cue('Both arms straight up', 'Facing the tablet. Then turn slowly to your left.');
+    } else cue('Keep both arms up', 'Over your head, all the way round.');
+    bar(0);
+    S.burst = [];
+    return;
+  }
+  const heels = [body.LM.leftHeel, body.LM.rightHeel].filter((i) => vis(lm, i)).map((i) => L(i).y);
+  if (!vis(lm, body.LM.nose) || !heels.length || Math.max(...heels) > 0.97 * S.H) {
+    cue('Step back a little', 'Your feet need to be in the picture.');
+    S.burst = [];
+    bar(0);
+    return;
+  }
+  const heelY = Math.max(...heels);
+  const spanH = shoulderSpanH(lm);
+
+  if (T.phase === 'facing') {
+    const nh = noseHeel(lm, sc.rectify);
+    const ratioNow = nh / sc.noseHeelPx;
+    const frontSpanH = (S.front.spanH / S.front.distanceRatio) * ratioNow;
+    if (!(spanH >= TURN_FACING_MIN * frontSpanH)) {
+      T.facing = [];
+      cue('Face the tablet first', 'Arms up, facing it; then turn slowly to your left.');
+      return;
+    }
+    if (!isStill()) {
+      T.facing = [];
+      cue('Hold still, arms up…', '', { speak: false });
+      return;
+    }
+    const w = chestWidthAt(p, lm, heelY, sc.pxPerMetre * ratioNow, ratioNow);
+    const sm = shoulderMid(lm);
+    T.facing.push({ spanH, nh, widthPx: w ? w.widthPx : NaN, ts, u: sc.rectify(sm.x, sm.y).u });
+    bar(Math.min(1, (ts - T.facing[0].ts) / FACING_MS) * 0.3);
+    cue('Hold still, arms up…', '', { speak: false });
+    if (T.facing.length >= FACING_MIN_FRAMES && ts - T.facing[0].ts >= FACING_MS) {
+      T.facingSpan = median(T.facing.map((q) => q.spanH));
+      T.ratio = median(T.facing.map((q) => q.nh)) / sc.noseHeelPx;
+      T.cosOff = offAxis(median(T.facing.map((q) => q.u)));
+      for (const q of T.facing) if (q.widthPx > 0) T.samples.push({ r: q.spanH / T.facingSpan, widthPx: q.widthPx });
+      T.phase = 'turning';
+    }
+    return;
+  }
+
+  // turning, and side on: one distance for the whole turn
+  const pm = sc.pxPerMetre * T.ratio;
+  const r = spanH / T.facingSpan;
+  const w = chestWidthAt(p, lm, heelY, pm, T.ratio);
+  if (w) T.samples.push({ r, widthPx: w.widthPx });
+  T.minR = Math.min(T.minR ?? Infinity, r);
+  const settled = isStill() && turnSettled(SETTLE_MS);
+  if (T.phase === 'turning') {
+    if (!settled || r > TURNED_SPAN_MAX) {
+      T.nudgeSince = null;
+      if (T.minR <= SIDE_ON_SPAN && r > TURNED_SPAN_MAX) cue('Back to side on', 'One shoulder pointing straight at the tablet, then hold still.');
+      else cue('Now turn slowly to your left', 'Arms up, feet where they are, until one shoulder points straight at the tablet.');
+      bar(0.3 + 0.6 * Math.min(1, Math.max(0, 1 - r)));
+      S.burst = [];
+      return;
+    }
+    if (r > SIDE_ON_SPAN) {
+      T.nudgeSince ??= ts;
+      if (ts - T.nudgeSince < NUDGE_MS) {
+        cue('Nearly', 'Turn until one shoulder points straight at the tablet, then hold still.');
+        S.burst = [];
+        return;
+      }
+    }
+    T.phase = 'side';
+  }
+  if (r > TURNED_SPAN_MAX) {
+    // moved off side on before the picture was taken: back to the turn
+    T.phase = 'turning';
+    S.burst = [];
+    return;
+  }
+  if (!settled) {
+    cue('Hold still…', '', { speak: false });
+    S.burst = [];
+    return;
+  }
+  if (!w) {
+    cue('Arms straight up, clear of your chest', '', { speak: false });
+    S.burst = [];
+    return;
+  }
+  S.burst.push({ widthPx: w.widthPx, r });
+  drawRow(w.left, w.right, w.y);
+  bar(0.9 + (0.1 * S.burst.length) / BURST);
+  cue('Hold still…', '', { speak: false });
+  if (S.burst.length < BURST) return;
+  const cm = S.burst.map((q) => (100 * q.widthPx) / pm).sort((x, z) => x - z);
+  const view = viewAngle(median(S.burst.map((q) => q.r)));
+  const seen = cm[cm.length >> 1];
+  const corrected = depthNearSide(seen, S.front.widthCm, view);
+  S.side = {
+    depthCm: Number.isFinite(corrected) ? corrected : seen,
+    seenCm: seen,
+    viewDeg: (view * 180) / Math.PI,
+    spreadCm: (cm[cm.length - 2] - cm[1]) / 2,
+    distanceRatio: T.ratio,
+  };
+  finish();
+}
+
+/** The angle the chest is seen at: viewAngleFromSpan, with where this customer stands. */
+function viewAngle(r) {
+  return viewAngleFromSpan(r, S.turn.cosOff || 1);
+}
+
+/** The turn's samples with their angles. */
+function turnAngles() {
+  const T = S.turn;
+  if (!T || !T.facingSpan) return [];
+  const pm = S.scale.pxPerMetre * T.ratio;
+  return T.samples.map((q) => ({ angle: viewAngle(q.r), widthCm: (100 * q.widthPx) / pm }));
+}
+
+/**
+ * The side picture has measured this customer's depth, so the ruler can be
+ * carried from the front of the trunk to its middle by their own depth
+ * rather than a typical one (gravity.js, middlePlane). Every length already
+ * read with the typical one is rescaled to match; twice round, because the
+ * depth was itself read with the old ruler.
+ */
+function rescaleToDepth(sc) {
+  const depth0 = S.side.depthCm / 100;
+  let mid = sc.middle;
+  for (let i = 0; i < 2; i++) {
+    mid = middlePlane({ pxPerMetre: sc.trackedPxPerMetre, rel: sc.trackedRel, focalPx: S.camera.focalPx, depthM: (depth0 * sc.pxPerMetre) / mid.pxPerMetre });
+  }
+  const k = sc.pxPerMetre / mid.pxPerMetre; // lengths grow by this
+  for (const key of ['widthCm', 'spreadCm']) S.front[key] *= k;
+  for (const key of ['depthCm', 'seenCm', 'spreadCm']) S.side[key] *= k;
+  if (sc.heightM) sc.heightM *= k;
+  sc.pxPerMetre = mid.pxPerMetre;
+  sc.rel = mid.rel;
+  sc.middle = mid;
 }
 
 // ——— the answer ———
@@ -938,6 +1167,7 @@ function finish() {
   setStage('result');
   if (S.stopFrames) S.stopFrames();
   const sc = S.scale;
+  if (sc.source === 'gravity') rescaleToDepth(sc);
   const g = girthFromWidthDepth(S.front.widthCm, S.side.depthCm);
   if (!(g.chestCm >= CHEST_RANGE[0] && g.chestCm <= CHEST_RANGE[1])) {
     showFailure(`The pictures added up to a ${Math.round(g.chestCm)} cm chest, which no adult has. An arm was probably in the way. Start again, arms well clear.`);
@@ -945,16 +1175,23 @@ function finish() {
   }
   // scatter between the frames of each picture adds to the scale's own error
   const measRel = Math.hypot(S.front.spreadCm / S.front.widthCm, S.side.spreadCm / S.side.depthCm) / 2;
-  const twoView = { chestCm: g.chestCm, errCm: chestError({ chestCm: g.chestCm, scaleRel: Math.hypot(sc.rel, measRel), method: 'two-view' }) };
+  // each reading's own error (shape, and the scatter between its frames),
+  // apart from the scale's, which they share
+  const twoView = {
+    chestCm: g.chestCm,
+    shapeCm: Math.hypot(shapeError(g.chestCm, 'two-view'), g.chestCm * measRel),
+    errCm: chestError({ chestCm: g.chestCm, scaleRel: Math.hypot(sc.rel, measRel), method: 'two-view' }),
+  };
   // the quarter turn, if enough of it was seen: measured all the way round
-  const turn = chestFromTurn(turnAngles());
+  S.turnSamples = turnAngles();
+  const turn = chestFromTurn(S.turnSamples);
   let chestCm = twoView.chestCm;
   let errCm = twoView.errCm;
   let method = g.method;
   let fused = null;
   if (turn.ok && turn.chestCm >= CHEST_RANGE[0] && turn.chestCm <= CHEST_RANGE[1]) {
-    const t = { chestCm: turn.chestCm, errCm: chestError({ chestCm: turn.chestCm, scaleRel: sc.rel, method: 'turn' }) };
-    fused = fuseChests(t, twoView);
+    const t = { chestCm: turn.chestCm, shapeCm: shapeError(turn.chestCm, 'turn') };
+    fused = fuseChests(t, twoView, sc.rel);
     chestCm = fused.chestCm;
     errCm = fused.errCm;
     method = fused.agree ? 'turn and two pictures' : 'turn and two pictures, disagreeing';
@@ -972,13 +1209,7 @@ function finish() {
     twoViewCm: twoView.chestCm,
     turnCm: fused ? turn.chestCm : null,
     turnCoverage: turn.coverage,
-    turnWhyNot: fused
-      ? null
-      : S.turnStartedLate
-        ? 'it began already part way round. Raise both arms facing the tablet first, then turn.'
-        : turn.ok
-          ? `it came to ${Math.round(turn.chestCm)} cm, which no adult chest is`
-          : turn.reason,
+    turnWhyNot: fused ? null : turn.ok ? `it came to ${Math.round(turn.chestCm)} cm, which no adult chest is` : turn.reason,
     fused,
     scale: { source: sc.source, rel: sc.rel, heightM: sc.heightM },
   };
@@ -1051,7 +1282,7 @@ function renderAnswer() {
   ${S.irisCheck && S.irisCheck.verdict !== 'agree' ? `<p class="note note--warn">The two rulers disagree. Hop again, knees straight, and see if the answer holds.</p>` : ''}
   <table class="chart"><thead><tr><th>Size</th><th>Chest</th><th>Length</th><th>Chance</th></tr></thead><tbody>${rows}</tbody></table>
   <details class="hops"><summary>How it was measured</summary>
-    <p class="note">Each dot is where your shoulders were in one frame; each curve is free fall fitted through a flight. Their bend is gravity, ${sc.source === 'gravity' ? `${(sc.fit.accel.mag).toFixed(0)} pixels per second per second here, which is ${sc.pxPerMetre.toFixed(1)} pixels to the metre where you stood.` : ''}</p>
+    <p class="note">Each dot is where your shoulders were in one frame; each curve is free fall fitted through a flight. Their bend is gravity, ${sc.source === 'gravity' ? `${(sc.fit.accel.mag).toFixed(0)} pixels per second per second here, which is ${sc.trackedPxPerMetre.toFixed(1)} pixels to the metre at the front of you, and ${sc.pxPerMetre.toFixed(1)} a little further back, through the middle of you, where your outline is measured.` : ''}</p>
     ${sc.source === 'gravity' ? hopSvg(sc) : ''}
     <p class="note">${
       R.turnCm
@@ -1068,6 +1299,7 @@ function renderAnswer() {
     <p class="note">Measure height (in the shoes they hopped in) and chest by tape, before reading the answer above. The row stays on this device. See FIELD.md.</p>
     <p><label>Tape chest, cm <input id="tapeChest" inputmode="decimal" size="6"></label>
        <label>Tape height, cm <input id="tapeHeight" inputmode="decimal" size="6"></label>
+       <label>Top <select id="tapeTop"><option value="">—</option><option>plain</option><option>patterned</option></select></label>
        <button type="button" id="saveRow">Save this row</button></p>
     <p><button type="button" id="downloadRows">Download the rows</button> <button type="button" id="clearRows">Clear them</button> <span id="rowCount"></span></p>
   </details>` : ''}
@@ -1089,7 +1321,7 @@ function writeRows(rows) {
     localStorage.setItem(ROWS_KEY, JSON.stringify(rows.slice(-500)));
   } catch {}
 }
-function rowNow(tapeChest, tapeHeight) {
+function rowNow(tapeChest, tapeHeight, top) {
   const R = S.result;
   const sc = S.scale;
   return {
@@ -1104,6 +1336,13 @@ function rowNow(tapeChest, tapeHeight) {
     method: R.method,
     depthCm: +R.depthCm.toFixed(1),
     heightCm: sc.heightM ? +(sc.heightM * 100).toFixed(1) : '',
+    // the step from the tracked surface to the body's middle (gravity.js,
+    // middlePlane), and what the customer wore over the tracked box: plain
+    // tops leave the tracker the outline, patterned ones the shirt — the
+    // rows can tell how far in front of the middle it really is
+    top: top || '',
+    middleFactor: sc.middle ? +sc.middle.factor.toFixed(4) : '',
+    distanceM: sc.middle ? +sc.middle.distanceM.toFixed(2) : '',
     size: R.verdict.best.name,
     secondSize: R.verdict.second ? R.verdict.second.name : '',
     scaleSource: sc.source,
@@ -1127,13 +1366,13 @@ function wireStaff() {
     const c = parseFloat($('tapeChest').value);
     const h = parseFloat($('tapeHeight').value);
     if (!(c > 50 && c < 220)) return ($('rowCount').textContent = 'The tape chest is needed, in cm.');
-    writeRows([...readRows(), rowNow(c, h > 100 && h < 250 ? h : '')]);
+    writeRows([...readRows(), rowNow(c, h > 100 && h < 250 ? h : '', $('tapeTop').value)]);
     count();
   };
   $('downloadRows').onclick = () => {
     const rows = readRows();
     if (!rows.length) return;
-    const keys = Object.keys(rows[0]);
+    const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))]; // rows saved by an older page lack the newer columns
     const csv = [keys.join(','), ...rows.map((r) => keys.map((k) => JSON.stringify(r[k] ?? '')).join(','))].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));

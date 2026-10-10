@@ -72,10 +72,18 @@ const COIN_TOSS = 0.2;
 const TURN_REL = 0.02;
 const TURN_FLOOR_CM = 2;
 
+/**
+ * The part of a chest's ± that is the method's own — the shape assumed, or the
+ * turn's reading of it — and not the scale's, which every method shares.
+ */
+export function shapeError(chestCm, method = 'two-view') {
+  if (method === 'turn') return Math.max(TURN_FLOOR_CM, chestCm * TURN_REL);
+  return Math.max(FLOOR_CM, chestCm * SHAPE_REL);
+}
+
 /** ± in cm for a chest, given the scale's relative uncertainty and how it was read. */
 export function chestError({ chestCm, scaleRel, method = 'two-view' }) {
-  if (method === 'turn') return Math.max(TURN_FLOOR_CM, chestCm * Math.hypot(TURN_REL, scaleRel || 0));
-  return Math.max(FLOOR_CM, chestCm * Math.hypot(SHAPE_REL, scaleRel || 0));
+  return Math.hypot(shapeError(chestCm, method), chestCm * (scaleRel || 0));
 }
 
 // A quarter turn read into this many bins of angle, at least this share of
@@ -112,8 +120,16 @@ export function chestFromTurn(samples) {
   const seen = mean.filter(Number.isFinite).length;
   const coverage = seen / TURN_BINS;
   if (coverage < TURN_COVERAGE) return { ok: false, coverage, reason: 'Not enough of the turn was seen. Turn more slowly, all the way until one shoulder points at the tablet.' };
-  // ends must be seen: facing and side on are where the width is its widest and narrowest
-  if (!Number.isFinite(mean[0]) || !Number.isFinite(mean[TURN_BINS - 1])) return { ok: false, coverage, reason: 'The turn has to start facing the tablet and end side on.' };
+  // the ends must be seen, to within a bin: facing and side on are where the
+  // width is its widest and narrowest. Within a bin is enough because a body
+  // the same on both sides has its width level there (as wide as it gets, as
+  // narrow), so the bin next to an end stands in for it — which it has to for
+  // a customer standing off to one side, who is already turned a few degrees
+  // to the camera's line of sight when facing the tablet
+  if (!(Number.isFinite(mean[0]) || Number.isFinite(mean[1])) || !(Number.isFinite(mean[TURN_BINS - 1]) || Number.isFinite(mean[TURN_BINS - 2])))
+    return { ok: false, coverage, reason: 'The turn has to start facing the tablet and end side on.' };
+  if (!Number.isFinite(mean[0])) mean[0] = mean[1];
+  if (!Number.isFinite(mean[TURN_BINS - 1])) mean[TURN_BINS - 1] = mean[TURN_BINS - 2];
   let gap = 0;
   for (const m of mean) {
     gap = Number.isFinite(m) ? 0 : gap + 1;
@@ -134,20 +150,58 @@ export function chestFromTurn(samples) {
 }
 
 /**
- * One chest from two readings of it: weighted by their errors when they agree
- * to within three of their combined errors, and when they do not, their middle
- * with an error wide enough to cover both — and a flag, because one of them
- * is wrong. Each is { chestCm, errCm }.
+ * The angle a turning chest is seen at, from the shoulders' span in the level
+ * picture against facing, r. A turn changes the span as the cosine of the
+ * angle to the line of sight — not to the camera's axis: a customer standing
+ * off to one side faces the tablet already turned a little to the line they
+ * are seen along (cosOff, the cosine of how far off the axis they stand), and
+ * their shoulders meet in the picture when one points at the tablet, not when
+ * they have turned a right angle in the room. So cos θ = r · cosOff. Past side
+ * on the span grows again; a body the same on both sides looks the same at
+ * 90° + x as at 90° − x, which is what taking |r| does.
  */
-export function fuseChests(a, b) {
-  const comb = Math.hypot(a.errCm, b.errCm);
+export function viewAngleFromSpan(r, cosOff = 1) {
+  return Math.acos(Math.min(1, Math.abs(r) * cosOff));
+}
+
+/**
+ * The chest's depth from a width read a little short of side on (or past
+ * it): viewAngle in radians from facing, the width seen there and the width
+ * facing. Read as an ellipse, w(θ)² = W² cos²θ + D² sin²θ; ten degrees short
+ * of side on the width is about one per cent more than the depth, and the
+ * correction's own error is a small part of that. Not for angles under 70°,
+ * where it would be guessing rather than correcting.
+ */
+export function depthNearSide(widthCm, frontWidthCm, viewAngle) {
+  if (!(viewAngle >= (70 * Math.PI) / 180)) return NaN;
+  const c = Math.cos(Math.min(Math.PI / 2, viewAngle));
+  const s2 = 1 - c * c;
+  return Math.sqrt(Math.max(0, (widthCm * widthCm - frontWidthCm * frontWidthCm * c * c) / s2));
+}
+
+/**
+ * One chest from two readings of it, each { chestCm, shapeCm } with shapeCm
+ * its own error apart from the scale. Both were read with the same scale, so
+ * that part of their error is shared: it neither shrinks by averaging nor shows
+ * in their difference. So they are weighed, and their agreement judged, by
+ * their own errors alone, and the scale's is added back once at the end.
+ * When they agree to within three of their combined own errors: weighted.
+ * When not: their middle, wide enough to cover both, and a flag, because one
+ * of them is wrong. Never surer than the turn alone could be (its floor).
+ */
+export function fuseChests(a, b, scaleRel = 0) {
+  const own = Math.hypot(a.shapeCm, b.shapeCm);
   const diff = a.chestCm - b.chestCm;
-  if (Math.abs(diff) <= 3 * comb) {
-    const wa = 1 / (a.errCm * a.errCm);
-    const wb = 1 / (b.errCm * b.errCm);
-    return { chestCm: (wa * a.chestCm + wb * b.chestCm) / (wa + wb), errCm: 1 / Math.sqrt(wa + wb), agree: true, diffCm: diff };
+  if (Math.abs(diff) <= 3 * own) {
+    const wa = 1 / (a.shapeCm * a.shapeCm);
+    const wb = 1 / (b.shapeCm * b.shapeCm);
+    const chestCm = (wa * a.chestCm + wb * b.chestCm) / (wa + wb);
+    const shape = Math.max(TURN_FLOOR_CM, 1 / Math.sqrt(wa + wb));
+    return { chestCm, errCm: Math.hypot(shape, chestCm * scaleRel), agree: true, diffCm: diff };
   }
-  return { chestCm: (a.chestCm + b.chestCm) / 2, errCm: Math.max(a.errCm, b.errCm, Math.abs(diff) / 2), agree: false, diffCm: diff };
+  const chestCm = (a.chestCm + b.chestCm) / 2;
+  const shape = Math.max(a.shapeCm, b.shapeCm, Math.abs(diff) / 2);
+  return { chestCm, errCm: Math.hypot(shape, chestCm * scaleRel), agree: false, diffCm: diff };
 }
 
 /** The standard normal CDF, Abramowitz and Stegun 7.1.26, as the August page had it (Hg). */

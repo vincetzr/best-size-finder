@@ -51,7 +51,8 @@ without the known length above. The customer hops five times on the spot. In the
 air they are in free fall, and free fall is 9.81 m/s² for everyone, so the
 acceleration of their trunk in the picture, in pixels per second squared, divided
 by g, is pixels per metre at the body — no card, no mark on the floor, no height
-typed in. Then a picture facing, arms out, and a slow quarter turn with the arms
+typed in. (At the front of the body, where the tracker looks; the page steps it
+back to the body's middle, where the outline is measured.) Then a picture facing, arms out, and a slow quarter turn with the arms
 up: by Cauchy's formula π times the chest's mean width over the turn is the
 length a tape would follow round it. Their height comes out as a by-product, which they can check for
 themselves against what they know. The eyes, read close up when they tap Start
@@ -65,7 +66,7 @@ Unlike `index.html`, this page is built from readable source in this repository 
 `src/` (ES modules, no build step), `sim/` (the simulated hopper it is tested on),
 `test/`:
 
-    npm test                                 # unit tests and the simulator, ~10 s
+    npm test                                 # unit tests and the simulator, ~25 s
     node sim/montecarlo.mjs                  # the accuracy table in HOW-IT-MEASURES.md
     node test/e2e/cutout.mjs test/e2e/media/duffy.jpg /tmp/hop   # once: cut the person out
     node test/e2e/run.mjs /tmp/hop           # the real page in Chromium, watching him hop

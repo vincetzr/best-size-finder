@@ -14,6 +14,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { serve } from './serve.mjs';
+import { middlePlane } from '../../src/gravity.js';
+import { nominalFocalPx } from '../../src/level.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 const repo = path.resolve(here, '../..');
@@ -39,7 +41,14 @@ const ctx = await browser.newContext({ viewport: { width: 540, height: 960 } });
 await ctx.grantPermissions(['camera']);
 // the two pictures, which the photograph cannot pose for (pictures.js)
 const PICTURE = { widthM: 0.34, depthM: 0.25, nearer: 1.03, n: 3 };
-await ctx.addInitScript(`window.__scanTruth = ${JSON.stringify({ ...PICTURE, pxPerMetre: truth.pxPerMetre })};`);
+// The hopping video is a photograph: flat, its shirt and its outline at one
+// distance. A person's are not — the page's ruler is at the front of the
+// trunk and its widths at the middle (gravity.js, middlePlane). So the
+// pictures' person is drawn at the scale the middle of a body this deep would
+// have, behind a shirt at the video's scale; and the photograph's own height
+// is checked with that step undone, since its head is on its shirt's plane.
+const middle = middlePlane({ pxPerMetre: truth.pxPerMetre, rel: 0, focalPx: nominalFocalPx(...truth.frame), depthM: PICTURE.depthM });
+await ctx.addInitScript(`window.__scanTruth = ${JSON.stringify({ ...PICTURE, pxPerMetre: truth.pxPerMetre * middle.factor })};`);
 await ctx.addInitScript({ path: path.join(here, 'pictures.js') });
 const page = await ctx.newPage();
 const logs = [];
@@ -64,12 +73,14 @@ while (Date.now() - t0 < 300000) {
     return {
       stage: S.stage,
       cue: document.getElementById('cueBig').textContent + ' | ' + document.getElementById('cueSmall').textContent,
-      scale: S.scale && { pxPerMetre: S.scale.pxPerMetre, rel: S.scale.rel, heightM: S.scale.heightM, hopsUsed: S.scale.hopsUsed, source: S.scale.source },
+      scale: S.scale && { pxPerMetre: S.scale.pxPerMetre, trackedPxPerMetre: S.scale.trackedPxPerMetre, rel: S.scale.rel, trackedRel: S.scale.trackedRel, heightM: S.scale.heightM, hopsUsed: S.scale.hopsUsed, source: S.scale.source },
       fit: S.hopFit && !S.hopFit.ok ? S.hopFit.message : null,
       timing: S.hopTiming,
       samples: S.hop ? S.hop.samples.length : 0,
       result: S.result && !S.result.failed && { chestCm: S.result.chestCm, errCm: S.result.errCm, widthCm: S.result.widthCm, depthCm: S.result.depthCm, size: S.result.verdict.best.name, method: S.result.method, turnCm: S.result.turnCm, twoViewCm: S.result.twoViewCm, turnWhyNot: S.result.turnWhyNot, turnSamples: (S.turnSamples || []).length },
       perimeterM: window.__scanTruth && window.__scanTruth.perimeterM,
+      seenFrontM: window.__scanTruth && window.__scanTruth.seenFrontM,
+      seenSideM: window.__scanTruth && window.__scanTruth.seenSideM,
       failed: S.result && S.result.failed,
       answer: document.getElementById('answer').hidden ? '' : document.getElementById('answer').innerText.slice(0, 400),
       W: S.W,
@@ -95,20 +106,25 @@ if (!state || !state.scale) {
   console.log('FAIL: no scale was measured', state);
   process.exit(1);
 }
-const err = state.scale.pxPerMetre / truth.pxPerMetre - 1;
-// the pictures: what the page should read, given the scale it measured
-const k = truth.pxPerMetre / state.scale.pxPerMetre;
-const wantW = 100 * PICTURE.widthM * k;
-const wantD = 100 * PICTURE.depthM * k;
+// the ruler, where it was read; and carried to the middle of the body
+const err = state.scale.trackedPxPerMetre / truth.pxPerMetre - 1;
+const midErr = state.scale.pxPerMetre / (truth.pxPerMetre * middle.factor) - 1;
+// the pictures: what the page should read, given the scale it measured, of
+// what a camera sees (in perspective, a little more than the chest itself)
+const k = (truth.pxPerMetre * middle.factor) / state.scale.pxPerMetre;
+const wantW = 100 * (state.seenFrontM || PICTURE.widthM) * k;
+const wantD = 100 * (state.seenSideM || PICTURE.depthM) * k;
 const wantChest = 1.418 * wantW + 1.015 * wantD + 33.52;
-const hErr = state.scale.heightM !== null ? (state.scale.heightM - truth.statureM) * 100 : NaN;
+const flatHeightM = state.scale.heightM !== null ? (state.scale.heightM * state.scale.pxPerMetre) / state.scale.trackedPxPerMetre : null;
+const hErr = flatHeightM !== null ? (flatHeightM - truth.statureM) * 100 : NaN;
 console.log(`video ${state.W}x${state.H}; ${state.samples} tracked frames; clock ${JSON.stringify(state.timing)}`);
-console.log(`scale  ${state.scale.pxPerMetre.toFixed(2)} px/m against ${truth.pxPerMetre.toFixed(2)}: ${(100 * err).toFixed(2)} per cent (claimed ±${(100 * state.scale.rel).toFixed(2)}), ${state.scale.hopsUsed} hops`);
-console.log(`height ${state.scale.heightM !== null ? (state.scale.heightM * 100).toFixed(1) : '—'} cm against ${(truth.statureM * 100).toFixed(1)}: ${hErr.toFixed(1)} cm`);
+console.log(`scale  ${state.scale.trackedPxPerMetre.toFixed(2)} px/m against ${truth.pxPerMetre.toFixed(2)}: ${(100 * err).toFixed(2)} per cent (claimed ±${(100 * state.scale.trackedRel).toFixed(2)}), ${state.scale.hopsUsed} hops`);
+console.log(`middle ${state.scale.pxPerMetre.toFixed(2)} px/m against ${(truth.pxPerMetre * middle.factor).toFixed(2)}: ${(100 * midErr).toFixed(2)} per cent (claimed ±${(100 * state.scale.rel).toFixed(2)}), ${(100 * middle.aheadM).toFixed(1)} cm behind the shirt at ${middle.distanceM.toFixed(2)} m`);
+console.log(`height ${flatHeightM !== null ? (flatHeightM * 100).toFixed(1) : '—'} cm (the photograph's, flat) against ${(truth.statureM * 100).toFixed(1)}: ${hErr.toFixed(1)} cm; a person's would read ${state.scale.heightM !== null ? (state.scale.heightM * 100).toFixed(1) : '—'}`);
 let picturesOk = false;
 if (state.result) {
   const r = state.result;
-  console.log(`width  ${r.widthCm.toFixed(2)} cm against ${wantW.toFixed(2)}; depth ${r.depthCm.toFixed(2)} against ${wantD.toFixed(2)}`);
+  console.log(`width  ${r.widthCm.toFixed(2)} cm against ${wantW.toFixed(2)} seen (${(100 * PICTURE.widthM * k).toFixed(2)} the chest's own); depth ${r.depthCm.toFixed(2)} against ${wantD.toFixed(2)} seen (${(100 * PICTURE.depthM * k).toFixed(2)})`);
   console.log(`chest  ${r.chestCm.toFixed(1)} ± ${r.errCm.toFixed(1)} cm (${r.method}); size ${r.size}`);
   console.log(`answer: ${state.answer.replace(/\s+/g, ' ').slice(0, 300)}`);
   const wantTurn = 100 * state.perimeterM * k;
@@ -122,6 +138,6 @@ if (state.result) {
     state.answer.includes(r.size);
 } else console.log(`pictures: no result (${state.stage}: ${state.cue}${state.failed ? `; ${state.failed}` : ''})`);
 console.log(external.length ? `REQUESTS OFF THE DEVICE: ${[...new Set(external)].join(', ')}` : 'no request left the device');
-const pass = Math.abs(err) < 0.02 && !(Math.abs(hErr) > 3) && picturesOk && external.length === 0;
+const pass = Math.abs(err) < 0.02 && Math.abs(midErr) < 0.02 && !(Math.abs(hErr) > 3) && picturesOk && external.length === 0;
 console.log(pass ? 'PASS' : 'FAIL');
 process.exit(pass ? 0 : 1);

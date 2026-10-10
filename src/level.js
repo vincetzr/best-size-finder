@@ -20,6 +20,18 @@
  * of sight as seen from behind it (its "right" lifted). Same as sim/hopper.mjs.
  */
 
+/**
+ * A nominal focal length, in pixels, for a W×H picture: 75 degrees across the
+ * diagonal is a phone's or tablet's front camera, give or take. The browser
+ * does not say. It only has to be roughly right where it is used: with the
+ * tablet within five degrees of upright, a focal length a fifth out costs the
+ * rectification under 0.6 per cent (test/level.test.mjs).
+ */
+export const NOMINAL_DIAGONAL_FOV_DEG = 75;
+export function nominalFocalPx(W, H) {
+  return Math.hypot(W, H) / 2 / Math.tan(((NOMINAL_DIAGONAL_FOV_DEG / 2) * Math.PI) / 180);
+}
+
 /** Camera axes in world coordinates (x right, y up, z ahead), for a pitch and roll. */
 export function cameraBasis(pitchRad, rollRad) {
   const fw = [0, -Math.sin(pitchRad), Math.cos(pitchRad)];

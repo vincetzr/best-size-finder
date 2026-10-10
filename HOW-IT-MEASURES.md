@@ -38,7 +38,15 @@ What has to be true, and how the page makes it so:
    onto the camera's own regular grid — from the browser's own frame count
    where it gives one, otherwise by a periodogram — used only when the scatter
    is white (`test/timing.test.mjs`; in the table below, 5 ms of jitter scatters
-   0.59 per cent against 0.57 for none).
+   0.59 per cent against 0.57 for none). Safari has one trap of its own: when
+   two camera frames arrive while the page is busy, it hands over the newer
+   pixels with the older frame's stamp, and counts one frame, not two. Such a
+   frame looks a camera period older than usual when it is delivered, so each
+   frame's delay is held against the recent median and one more than three
+   quarters of a period over it is left out (`StampCheck`). On a model of
+   WebKit's delivery at 60 fps with the pose model running between frames,
+   that catches 98 per cent of them and keeps 99.7 per cent of good frames;
+   the earlier test, on how long the previous callback ran, caught none.
 2. **The trunk moves with the centre of mass in the air.** It does when the body
    is held still: hands on hips, knees straight, the ankles doing the hopping.
    Folding the legs moves the centre of mass against the trunk and reads as
@@ -70,6 +78,30 @@ What has to be true, and how the page makes it so:
 Every hop is a reading; they share one acceleration and are fitted together, and
 the spread between them sets the error bar — which, on every case simulated, is
 the size of the error actually made.
+
+### Where on the body the ruler is
+
+The ruler is pixels per metre where the tracked box is, and that is the front
+of the trunk; everything measured with it — the outline's edges side to side
+and front to back, the top of the head, the heels — is in the body's middle
+plane, about half a chest's depth further from the camera. At two and a half
+metres twelve centimetres is five per cent: uncorrected, every length would
+read five per cent small, a 175 cm customer 166. Neither the simulator nor the
+end-to-end video could show it — both are flat.
+
+Not all of the box is in front, though. For the up-and-down of a hop the
+tracker follows the lines that run across the picture: the tops of the
+shoulders and the elbows against the room, which are in the middle plane, and
+the shirt's collar, seams and pattern, which are on the front. A plain shirt is
+mostly outline, a striped one mostly front. So the page takes the tracked
+surface as a quarter of the chest's depth in front of the middle, plus a
+centimetre, and its error bar takes in the whole range (a seventh of the depth
+as a standard deviation, and the focal length's doubt in turning centimetres
+into a share). It starts from a typical 24 cm chest and, once the side picture
+has measured this customer's, redoes it with theirs (`middlePlane` in
+`src/gravity.js`). That doubt — about two per cent at two metres — is now the
+largest part of the scale's, bigger than the hops' own; how the tracker splits
+its attention between outline and shirt is the thing to measure next.
 
 The idea is not new: Bieler, Günel, Fua and Salzmann (ICCV 2019, "Gravity as a
 Reference for Estimating a Person's Height from Video") estimated people's height
@@ -124,14 +156,20 @@ quarter turn with the arms up, ending side on, for its depth — and, frame by
 frame, its width at every angle in between (next section). Between the hops and
 the pictures a customer may shuffle a few centimetres, which at two and a half
 metres is a per cent or two; so the scale is carried by their own nose-to-heel
-height in pixels, which neither raising the arms nor turning on the spot
-changes. From the width and depth alone the girth comes by the August page's fit
+height in pixels, which raising the arms does not change. Turning does: side on,
+the nearer heel is half a stance nearer the camera and lower in the picture, a
+few per cent at two metres. So the turn is carried once, from the moment the
+customer stands facing with their arms up before it begins, and that distance
+holds for the whole turn — they turn with their feet where they are. Widths are
+taken across the line of sight: a customer standing off to one side of the
+camera's axis is drawn a little wider than they are, by the cosine of the angle
+off it. From the width and depth alone the girth comes by the August page's fit
 to tape-measured bodies (1.418 w + 1.015 d + 33.52, Ramanujan's ellipse outside
 it), ported as it was (`src/sizing.js`), and BEST's chart from there.
 
 ## Where the error is now: the chest's shape
 
-With the scale at about one per cent, it is no longer what decides the size.
+Even with the scale at two per cent, it is not what decides the size.
 A girth worked out from one width and one depth has to assume the shape in
 between, and ANSUR II (the US Army's 2012 survey: 4,082 men and 1,986 women,
 tape and calipers, public domain) says what that costs even when the width and
@@ -154,25 +192,51 @@ The way past it is not a better guess at the shape but not guessing: a tape
 follows the chest's convex outline, and by Cauchy's formula that outline's
 length is π times its mean width over a half turn (a quarter, for a body the
 same on both sides). So the side picture is now the end of a slow quarter turn,
-arms up, and every frame of it is a width at an angle. The angle comes from how
-far apart the shoulders look against how far apart they looked facing — least
-sure near facing and near side on, which is exactly where a chest's width
-hardly changes, so the mean barely notices (`test/sizing.test.mjs`: a squarer-
-than-elliptical chest read through noisy angles, within 2 per cent; clean,
-within 1). The August page built the same measurement and hid it behind
-`?turn=1`, because without a scale it had nothing to multiply the widths by.
+arms up, and every frame of it is a width at an angle. The August page built the
+same measurement and hid it behind `?turn=1`, because without a scale it had
+nothing to multiply the widths by.
 
-When the turn is read, the answer weighs it against the two-view line by how
-sure each is (2 per cent against 4, the August page's own figures for each,
-neither yet checked against a tape), and says if they disagree by more than
-either should be wrong by. When it is not — turned too fast, or not all the way —
-the two-view line stands alone, and the answer says why. It matters for which
-size: at ±4 cm the two-view line alone cannot separate sizes 4 cm apart (2X Small
-to Large) — the best of two neighbours always wins by less than twenty points,
-and the page says it is close to a coin toss. At the turn's ±2 cm it usually can. End to end, a drawn
-chest whose outline is 99.5 cm round read 99.6 by the turn, where the two-view
-line, assuming a typical chest's shape, said 106.9. Which of the two is nearer
-the tape on real customers is the first thing the field rows will show.
+The angle comes from how far apart the shoulders look, across the level picture
+(not up and down: a camera below the shoulders sees the nearer one higher),
+against how far apart they looked facing. In perspective that span is the
+cosine of the angle to the line of sight, not to the camera's axis: a customer
+standing off to one side faces the tablet already turned a few degrees to the
+line they are seen along, and their shoulders meet in the picture when one
+points at the tablet, which is not a right angle in the room. Read that way —
+cos θ = the span's share times the cosine of the angle off the axis — the turn
+comes to the tape within 0.6 per cent wherever the page lets a customer stand,
+turning either way, or past side on, through an exact pinhole camera
+(`test/sizing.test.mjs`); the calibration this replaced, which took wherever the
+turn stopped as side on, was off by one to two per cent for every tenth of their
+distance a customer stood off the axis. The angle is least sure near facing and
+near side on, which is where a chest's width hardly changes, so the mean barely
+notices; and the bin at each end can stand in for its neighbour for the same
+reason.
+
+Side on is where the customer stops turning, and the page never says *hold
+still* before then: a chest seen ten degrees short of side on reads up to six
+per cent deep if it is squarer than an ellipse, and an early *hold still* is
+exactly what stops people short. Stopped short, they are nudged once to come
+the rest of the way; still short, the depth is corrected for the angle as an
+ellipse (exact for one, part of the excess for a squarer chest).
+
+When the turn is read, the answer weighs it against the two-view line by each
+one's own error — the two-view line's assumed shape (4 per cent) and the scatter
+between its frames, against the turn's 2 (the August page's figures, neither yet
+checked against a tape) — and adds the scale's error once, at the end, because
+both were read with the same scale: it neither shrinks by averaging nor shows in
+their difference. If they disagree by more than three of their own errors, it
+gives their middle, wide enough to cover both, and says so. When the turn was
+not read — turned too fast, or not all the way — the two-view line stands
+alone, and the answer says why. It matters for which size: at ±4 cm the
+two-view line alone cannot separate sizes 4 cm apart (2X Small to Large) — the
+best of two neighbours always wins by less than twenty points, and the page says
+it is close to a coin toss. At the turn's ±2 cm it usually can. End to end, a
+drawn chest whose outline is 99.6 cm round, drawn in perspective with the
+customer off the camera's axis, read 100.1 by the turn (100.3 against 99.7 on
+another run), where the two-view line, assuming a typical chest's shape, said
+108.0. Which of the two is nearer the
+tape on real customers is the first thing the field rows will show.
 
 ## The second ruler: the eyes
 
@@ -181,8 +245,9 @@ others 2005; MediaPipe's own model assumes 11.7). When a customer taps Start the
 are at arm's length and the iris is twenty-odd pixels: the page reads it, and
 from it the distance between their eyes in millimetres. At the hopping distance
 the eyes are a few pixels each, but the distance between them is still thirty,
-so it carries a second, independent scale out to where they stand — about
-4 per cent, against gravity's one. It is a cross-check: if the two disagree by
+so it carries a second, independent scale out to where they stand, to the
+middle of the body as gravity's is — about 4 per cent, against gravity's two.
+It is a cross-check: if the two disagree by
 more than they should, the page says so. And for someone who cannot hop, it is
 the scale, with the margin it deserves (`src/iris.js`).
 
@@ -205,18 +270,26 @@ end to end, that the page itself, in Chromium, watching through the browser's
 fake camera a video of a real person — a 1902 photograph from the Library of
 Congress, cut out by the page's own pose model and moved along a simulated hop
 at a chosen scale, with motion blur, sensor noise and JPEG compression —
-recovers that scale. Four runs: 0.29, 0.20, 0.30 and 0.42 per cent out, each
-claiming ±1.1 (no accelerometer in a headless browser, so the pitch is taken
-on trust); the height it reported, 173.2–173.4 cm against 175.0, short by the
-height of the heel landmark above the floor (`test/e2e/`).
+recovers that scale. Four runs before the turn was reworked: 0.29, 0.20, 0.30
+and 0.42 per cent out; since, 0.07, 0.20 and 0.32, each claiming ±1.1 (no accelerometer in a
+headless browser, so the pitch is taken on trust); the height it reported,
+173–174 cm against 175.0, short by the height of the heel landmark above the
+floor (`test/e2e/`). The photograph is flat, so its shirt and its outline are
+at one distance; the test draws the pictures' person at the scale a body 25 cm
+deep would have at its middle behind a shirt at the video's, and checks the
+step back the page takes (0.13 and 0.25 per cent out, claiming ±2.4 with the doubt over
+where the tracked lines are) and the widths it then reads (within 0.02 cm of
+what the camera sees, which in perspective is 1–2 per cent more than the
+chest's own breadth and depth: the nearer parts of a squarish chest are nearer).
 
 That machine saw 27 frames a second once it stopped running the pose model
 during the hops — which, in software graphics, took 400 ms a call. On a slow
 device the page does the same: the hops get the frames, the knees go unwatched,
 and the answer says so.
 
-Not shown: how rigid real people are in the air, how well the shoulders give
-the angle of a real turn, and how close the chest girth comes to a tape on real
-customers. Both need people and a tape measure, and
+Not shown: how rigid real people are in the air, where on a real shirt the
+tracker's lines are, how well the shoulders give the angle of a real turn, and
+how close the chest girth comes to a tape on real customers. All need people
+and a tape measure, and
 `FIELD.md` says how to collect them. Until then, every accuracy number above is
 a statement about the method, not about the shop floor.

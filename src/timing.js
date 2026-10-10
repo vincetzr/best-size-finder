@@ -204,3 +204,40 @@ export function gridFromFrameNumbers(times, frames) {
   if (!(jitter < 0.3 * P)) return null;
   return { period: P, offset: t0, n, residual, jitter, R: 1, fromCount: true };
 }
+
+/**
+ * Is this frame's stamp its own? Safari, when two camera frames arrive while
+ * the page is busy, hands over the newest pixels with the oldest frame's
+ * capture time (MediaPlayerPrivateMediaStreamAVFObjC::processNewVideoFrame),
+ * and counts one frame, not two — so the count cannot tell either. What does
+ * tell is the delay: a frame stamped one camera period early looks a period
+ * older when it is delivered than frames usually are. So each frame's delay
+ * (when the page was told, less its stamp; any constant between the two
+ * clocks cancels) is held against the recent median, and a frame more than
+ * three quarters of a period over it is not trusted. A frame that was merely
+ * delivered late, behind a long callback, is caught as well; it costs one
+ * sample, which the fit does not miss. The period is the short end of the
+ * recent stamp gaps, which frames being lost cannot stretch.
+ */
+export class StampCheck {
+  constructor({ keep = 31 } = {}) {
+    this.keep = keep;
+    this.delays = [];
+    this.gaps = [];
+    this.lastT = NaN;
+  }
+  /** nowS: when the page was told (seconds); t: the frame's stamp (seconds). True if t is not to be trusted. */
+  stale(nowS, t) {
+    if (Number.isFinite(this.lastT) && t > this.lastT) {
+      this.gaps.push(t - this.lastT);
+      if (this.gaps.length > this.keep) this.gaps.shift();
+    }
+    this.lastT = t;
+    const delay = nowS - t;
+    let out = false;
+    if (this.delays.length >= 10 && this.gaps.length >= 10) out = delay - median(this.delays) > 0.75 * quantile(this.gaps, 0.2);
+    this.delays.push(delay);
+    if (this.delays.length > this.keep) this.delays.shift();
+    return out;
+  }
+}
