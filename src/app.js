@@ -48,6 +48,8 @@ const HEIGHT_LANDMARK_CM = 2;
 const STILL_PX = 1.2; // per frame, mean movement of the shoulders to count as standing still
 const BURST = 7; // frames per picture; the median is kept
 const POSE_TOO_SLOW_MS = 120;
+const LEVEL_GIVE_UP_S = 20;
+const FRAME_STILL_FRAMES = 15; // still frames, hands on hips, before the hops begin
 // side on: the shoulders look less than this share as far apart as facing,
 // which is about seventy degrees turned (acos 0.35)
 const TURNED_SPAN = 0.35;
@@ -155,8 +157,7 @@ async function start() {
       const a = e.accelerationIncludingGravity;
       if (!a || a.x === null) return;
       S.motionSeen = true;
-      const angle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
-      S.level.push({ x: a.x, y: a.y, z: a.z }, angle);
+      S.level.push({ x: a.x, y: a.y, z: a.z }, interfaceAngle());
     });
   }
   cue('Loading…', 'The first time takes a few seconds.', { speak: false });
@@ -188,6 +189,19 @@ function setCamera(W, H) {
   const ov = $('overlay');
   ov.width = W;
   ov.height = H;
+}
+
+/**
+ * How far the interface is turned from the frame the accelerometer reports in.
+ * iOS reports motion in the portrait frame of the device, and so does the old
+ * window.orientation; but WebKit counts an iPad's screen.orientation.angle from
+ * landscape, its "natural" way up (so 90 in portrait), which would put the level
+ * a quarter turn out and never let it pass. Android reports both from the
+ * device's natural way up, where the two agree.
+ */
+function interfaceAngle() {
+  if (typeof window.orientation === 'number') return (window.orientation + 360) % 360;
+  return (screen.orientation && screen.orientation.angle) || 0;
 }
 
 function monotonicMs(t) {
@@ -259,6 +273,11 @@ function near(f, ts) {
 function levelStage(f, ts) {
   const r = S.level.read();
   const mark = $('level');
+  if (S.motionSeen && r && !r.upright) {
+    cue('Stand the tablet up straight', 'At chest height, screen towards the room.');
+    if (since() > LEVEL_GIVE_UP_S) giveUpLevel();
+    return;
+  }
   if (!S.motionSeen || !r) {
     if (since() > 1.5) {
       // a laptop, or motion refused: carry on, with the pitch taken as small
@@ -287,7 +306,17 @@ function levelStage(f, ts) {
   } else {
     S.levelOkSince = null;
     bar(0);
+    // a level that reads nonsense (a platform reporting in a frame this page does
+    // not know) or that nobody can satisfy must not trap the customer
+    if (since() > LEVEL_GIVE_UP_S || Math.abs(roll) > 45) giveUpLevel();
   }
+}
+
+/** Carry on without the device's level: the pitch is taken as small, with the margin that deserves (gravity.js). */
+function giveUpLevel() {
+  S.attitude = null;
+  S.levelSkipped = true;
+  setStage('frame');
 }
 
 function currentAttitude() {
@@ -301,7 +330,8 @@ function poseNow(ts, wantMask = true) {
   const p = readPose(S.pose, S.cam.video, ts, { wantMask });
   S.lastPose = p;
   if (p) {
-    S.poseHistory.push({ ts, p });
+    // landmarks only: a mask is megabytes, and only the frame that reads it needs it
+    S.poseHistory.push({ ts, p: { landmarks: p.landmarks } });
     if (S.poseHistory.length > 30) S.poseHistory.shift();
   }
   return p;
@@ -355,7 +385,8 @@ function noseHeel(lm, rectify) {
 
 // ——— frame: head to feet, hands on hips ———
 function frameStage(f, ts) {
-  const p = poseNow(ts, true);
+  // the outline is only read on the frame that starts the hops (for the height)
+  const p = poseNow(ts, (S.frameOkCount || 0) >= FRAME_STILL_FRAMES - 1);
   drawPose(p);
   if (!p) {
     cue('Step into the picture', 'Two to three metres back, facing the tablet.');
@@ -403,9 +434,9 @@ function frameStage(f, ts) {
   // picture and still — before this they may still be at arm's length
   if (S.face && S.iris.ipdMm()) farIris(ts, p);
   S.frameOkCount = (S.frameOkCount || 0) + 1;
-  bar(S.frameOkCount / 15);
+  bar(S.frameOkCount / FRAME_STILL_FRAMES);
   cue('Hold still…', '');
-  if (S.frameOkCount >= 15) {
+  if (S.frameOkCount >= FRAME_STILL_FRAMES && p.mask) {
     S.frameOkCount = 0;
     enterHop(p);
   }
@@ -547,7 +578,7 @@ function hopStage(f, ts) {
   const predict = last ? { dx: last.dx + (prev ? last.dx - prev.dx : 0), dy: last.dy + (prev ? last.dy - prev.dy : 0) } : { dx: 0, dy: 0 };
   const r = H.tracker.track(g.gray, g.w, g.h, predict);
   H.trackMs = 0.9 * (H.trackMs ?? performance.now() - tTrack) + 0.1 * (performance.now() - tTrack);
-  if (r.ok) {
+  if (r.ok && !f.afterStall) {
     H.samples.push({ t: f.t, u: H.centre.x + r.dx, v: H.centre.y + r.dy, dx: r.dx, dy: r.dy, score: r.score, presented: f.presented });
     H.lost = 0;
   } else if (++H.lost > 20) {
@@ -566,7 +597,10 @@ function hopStage(f, ts) {
   const every = Math.max(2, Math.min(8, Math.ceil((H.poseMs || 0) / (POSE_SHARE * period * 1000))));
   // a device so slow that one pose costs several frames gives the hops the
   // frames instead: the knees go unchecked, and the answer says so
-  if (H.poseMs > POSE_TOO_SLOW_MS) H.kneesUnchecked = true;
+  // a pose call longer than a frame and a half leaves a hole in a flight, and
+  // gravity.js ends a flight at a hole of a few frames: at sixty frames a second
+  // that is 25 ms, so this is tied to the frame, not to a fixed time
+  if (H.poseMs > Math.min(POSE_TOO_SLOW_MS, 1.5 * period * 1000)) H.kneesUnchecked = true;
   else if (S.frameCount % every === 0) {
     const t0 = performance.now();
     const p = poseNow(ts, false);

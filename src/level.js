@@ -120,11 +120,21 @@ export class Level {
     }
     let jitter = 0;
     for (const b of this.buf) jitter = Math.max(jitter, Math.hypot(b.x - m.x, b.y - m.y, b.z - m.z));
-    if (this.sign === null) this.sign = detectSign(m, this.screenAngleDeg);
+    // which way round this platform reports gravity can only be told with the
+    // device standing up: lying on a counter, a hair either way decides it
+    // wrongly, and then everything reads upside down (a roll of 180 degrees).
+    // So until it is upright there is no reading, and once it is, the sign
+    // is fixed
+    if (this.sign === null) {
+      const th = ((this.screenAngleDeg || 0) * Math.PI) / 180;
+      const yr = m.x * Math.sin(th) + m.y * Math.cos(th);
+      if (!(Math.abs(yr) > 0.7 * Math.hypot(m.x, m.y, m.z))) return { upright: false, still: false };
+      this.sign = detectSign(m, this.screenAngleDeg);
+    }
     const att = attitudeFromGravity(m, this.screenAngleDeg, this.sign);
     if (!att) return null;
     // a device being handled shakes by more than a tenth of a metre per second
     // squared; one on a stand by far less
-    return { ...att, still: jitter < 0.15, jitter };
+    return { ...att, upright: true, still: jitter < 0.15, jitter };
   }
 }

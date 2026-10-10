@@ -43,7 +43,10 @@ const DEFAULTS = {
   // difference between a bias of −0.8 per cent and one of 0.1.
   trimEnds: 1,
   iterations: 3,
-  noiseFloorPx: 0.1, // a sub-pixel tracker on a real picture does not do better
+  // a sub-pixel tracker on a compressed picture does not do better: on the
+  // end-to-end video, JPEG blocks and bilinear placement leave residuals of
+  // a few tenths of a pixel that a tighter floor reads as slips
+  noiseFloorPx: 0.2,
 };
 
 const median = (a) => {
@@ -406,7 +409,10 @@ function jointFit(S, arcs) {
 function robustJointFit(S, arcs, opts) {
   let fit = jointFit(S, arcs);
   for (let pass = 0; pass < 4; pass++) {
-    const lim = 4 * fit.sigmaRobust;
+    // never tighter than the noise floor: on a very clean recording the robust
+    // spread is a few hundredths of a pixel, and four of those would throw out
+    // samples a compressed picture puts a quarter of a pixel out, flight by flight
+    const lim = 4 * Math.max(fit.sigmaRobust, opts.noiseFloorPx);
     let removed = 0;
     arcs = arcs
       .map((a, k) => {

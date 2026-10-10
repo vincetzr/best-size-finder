@@ -97,3 +97,19 @@ test('with no accelerometer: roll is read off the fall, pitch assumed small', ()
   const e = widthError({ rollDeg: 8, pitchDeg: 3 }, 1, false);
   assert.ok(Math.abs(e) < 0.012, `${(100 * e).toFixed(2)}%`);
 });
+
+test('a device lying flat gives no reading, and does not fix the sign the wrong way', () => {
+  // iOS reports gravity itself: face up on a counter, top edge a hair low
+  const L = new Level({ window: 10 });
+  for (let i = 0; i < 10; i++) L.push({ x: 0, y: 0.05, z: -9.81 }, 0);
+  const flat = L.read();
+  assert.equal(flat.upright, false);
+  assert.equal(L.sign, null);
+  // then stood up on its stand, upright in portrait: iOS reads y = −9.81
+  for (let i = 0; i < 10; i++) L.push({ x: 0, y: -9.81, z: 0.2 }, 0);
+  const up = L.read();
+  assert.equal(up.upright, true);
+  assert.equal(L.sign, -1);
+  assert.ok(Math.abs((up.rollRad * 180) / Math.PI) < 1, `roll ${(up.rollRad * 180) / Math.PI}`);
+  assert.ok(Math.abs((up.pitchRad * 180) / Math.PI) < 2);
+});

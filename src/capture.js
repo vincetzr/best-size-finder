@@ -74,12 +74,24 @@ export function closeCamera(stream) {
 export function everyFrame(video, onFrame) {
   let stopped = false;
   if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    // After a callback that ran long, the next frame's stamp may not be its
+    // own: Safari hands over the newest pixels with the oldest waiting frame's
+    // capture time (MediaPlayerPrivateMediaStreamAVFObjC). That frame is
+    // flagged, and the hop tracker leaves it out.
+    let lastMs = 0;
+    let lastT = NaN;
+    let period = 1 / 30;
     const step = (now, meta) => {
       if (stopped) return;
       const { t, source } = frameTime(now, meta);
+      if (Number.isFinite(lastT) && t > lastT) period = 0.9 * period + 0.1 * Math.min(0.1, t - lastT);
+      const afterStall = lastMs > 1500 * period;
+      lastT = t;
+      const t0 = performance.now();
       try {
-        onFrame({ t, source, now, presented: meta.presentedFrames, width: meta.width, height: meta.height });
+        onFrame({ t, source, now, presented: meta.presentedFrames, width: meta.width, height: meta.height, afterStall });
       } finally {
+        lastMs = performance.now() - t0;
         if (!stopped) video.requestVideoFrameCallback(step);
       }
     };

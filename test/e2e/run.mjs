@@ -79,6 +79,7 @@ while (Date.now() - t0 < 300000) {
   await new Promise((r) => setTimeout(r, 200));
 }
 await page.screenshot({ path: path.join(cut, 'last.png') });
+fs.writeFileSync(path.join(cut, 'hop.json'), JSON.stringify(await page.evaluate(() => { const S = window.__scan; return S.hop ? { samples: S.hop.samples.map((q) => ({ t: q.t, u: q.u, v: q.v, presented: q.presented })), arcs: S.scale && S.scale.fit ? S.scale.fit.arcs : null, hopsSeen: S.scale && S.scale.fit ? S.scale.fit.hopsSeen : null, dropped: S.scale ? S.scale.hopsDropped : null } : null; })));
 fs.writeFileSync(path.join(cut, 'turn.json'), JSON.stringify(await page.evaluate(() => ({ turn: window.__scan.turnSamples, side: window.__scan.side, front: window.__scan.front })), null, 0));
 await browser.close();
 server.close();
