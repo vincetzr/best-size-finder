@@ -38,7 +38,7 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: { width: 540, height: 960 } });
 await ctx.grantPermissions(['camera']);
 // the two pictures, which the photograph cannot pose for (pictures.js)
-const PICTURE = { widthM: 0.34, depthM: 0.25, nearer: 1.03 };
+const PICTURE = { widthM: 0.34, depthM: 0.25, nearer: 1.03, n: 3 };
 await ctx.addInitScript(`window.__scanTruth = ${JSON.stringify({ ...PICTURE, pxPerMetre: truth.pxPerMetre })};`);
 await ctx.addInitScript({ path: path.join(here, 'pictures.js') });
 const page = await ctx.newPage();
@@ -62,7 +62,8 @@ while (Date.now() - t0 < 300000) {
       fit: S.hopFit && !S.hopFit.ok ? S.hopFit.message : null,
       timing: S.hopTiming,
       samples: S.hop ? S.hop.samples.length : 0,
-      result: S.result && !S.result.failed && { chestCm: S.result.chestCm, errCm: S.result.errCm, widthCm: S.result.widthCm, depthCm: S.result.depthCm, size: S.result.verdict.best.name, method: S.result.method },
+      result: S.result && !S.result.failed && { chestCm: S.result.chestCm, errCm: S.result.errCm, widthCm: S.result.widthCm, depthCm: S.result.depthCm, size: S.result.verdict.best.name, method: S.result.method, turnCm: S.result.turnCm, twoViewCm: S.result.twoViewCm, turnWhyNot: S.result.turnWhyNot, turnSamples: (S.turnSamples || []).length },
+      perimeterM: window.__scanTruth && window.__scanTruth.perimeterM,
       failed: S.result && S.result.failed,
       answer: document.getElementById('answer').hidden ? '' : document.getElementById('answer').innerText.slice(0, 400),
       W: S.W,
@@ -78,6 +79,7 @@ while (Date.now() - t0 < 300000) {
   await new Promise((r) => setTimeout(r, 200));
 }
 await page.screenshot({ path: path.join(cut, 'last.png') });
+fs.writeFileSync(path.join(cut, 'turn.json'), JSON.stringify(await page.evaluate(() => ({ turn: window.__scan.turnSamples, side: window.__scan.side, front: window.__scan.front })), null, 0));
 await browser.close();
 server.close();
 for (const l of logs.filter((l) => /error|fail|warn/i.test(l)).slice(0, 20)) console.log('  page:', l);
@@ -100,9 +102,17 @@ let picturesOk = false;
 if (state.result) {
   const r = state.result;
   console.log(`width  ${r.widthCm.toFixed(2)} cm against ${wantW.toFixed(2)}; depth ${r.depthCm.toFixed(2)} against ${wantD.toFixed(2)}`);
-  console.log(`chest  ${r.chestCm.toFixed(1)} ± ${r.errCm.toFixed(1)} cm (${r.method}) against ${wantChest.toFixed(1)}; size ${r.size}`);
+  console.log(`chest  ${r.chestCm.toFixed(1)} ± ${r.errCm.toFixed(1)} cm (${r.method}); size ${r.size}`);
   console.log(`answer: ${state.answer.replace(/\s+/g, ' ').slice(0, 300)}`);
-  picturesOk = Math.abs(r.widthCm - wantW) < 0.3 && Math.abs(r.depthCm - wantD) < 0.3 && Math.abs(r.chestCm - wantChest) < 0.6 && state.answer.includes(r.size);
+  const wantTurn = 100 * state.perimeterM * k;
+  console.log(`turn   ${r.turnCm ? r.turnCm.toFixed(1) : '—'} cm from ${r.turnSamples} frames against a perimeter of ${wantTurn.toFixed(1)}${r.turnWhyNot ? ` (${r.turnWhyNot})` : ''}; two-view ${r.twoViewCm.toFixed(1)} against ${wantChest.toFixed(1)}`);
+  picturesOk =
+    Math.abs(r.widthCm - wantW) < 0.3 &&
+    Math.abs(r.depthCm - wantD) < 0.3 &&
+    Math.abs(r.twoViewCm - wantChest) < 0.6 &&
+    r.turnCm !== null &&
+    Math.abs(r.turnCm / wantTurn - 1) < 0.02 &&
+    state.answer.includes(r.size);
 } else console.log(`pictures: no result (${state.stage}: ${state.cue}${state.failed ? `; ${state.failed}` : ''})`);
 const pass = Math.abs(err) < 0.02 && !(Math.abs(hErr) > 3) && picturesOk;
 console.log(pass ? 'PASS' : 'FAIL');

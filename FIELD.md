@@ -51,6 +51,10 @@ What to work out:
 - **chest error** (page − tape): mean and spread, and how much of it the height
   error explains (chest error ÷ chest against height error ÷ height should line
   up if the scale is to blame).
+- **the turn against the two pictures**: each row has the quarter turn's girth
+  (`turnCm`, measured all the way round) and the two-view line's (`twoViewCm`,
+  which assumes a typical shape). Whichever is nearer the tape on average should
+  get the larger weight — the page currently gives the turn about four fifths.
 - **sizes**: how often the page's first size is the tape's size, and how often the
   tape's size is in its first two.
 - **refusals**: how often the page asked for the hops again, and why.

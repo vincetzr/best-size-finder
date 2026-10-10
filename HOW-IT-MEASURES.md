@@ -145,11 +145,24 @@ ANSUR, consistent with its having been fitted to silhouettes); the field rows
 
 The way past it is not a better guess at the shape but not guessing: a tape
 follows the chest's convex outline, and by Cauchy's formula that outline's
-length is π times its mean width over a half turn. A slow quarter turn,
-measured on every frame against a scale that is now right, arrives at the
-tape rather than estimating it. The August page built that and hid it behind
-`?turn=1`, because without a scale it had nothing to multiply the widths by;
-it is the next thing to bring across.
+length is π times its mean width over a half turn (a quarter, for a body the
+same on both sides). So the side picture is now the end of a slow quarter turn,
+arms up, and every frame of it is a width at an angle. The angle comes from how
+far apart the shoulders look against how far apart they looked facing — least
+sure near facing and near side on, which is exactly where a chest's width
+hardly changes, so the mean barely notices (`test/sizing.test.mjs`: a squarer-
+than-elliptical chest read through noisy angles, within 2 per cent; clean,
+within 1). The August page built the same measurement and hid it behind
+`?turn=1`, because without a scale it had nothing to multiply the widths by.
+
+When the turn is read, the answer weighs it against the two-view line by how
+sure each is (2 per cent against 4, the August page's own figures for each,
+neither yet checked against a tape), and says if they disagree by more than
+either should be wrong by. When it is not — turned too fast, or not all the way —
+the two-view line stands alone, and the answer says why. End to end, a drawn
+chest whose outline is 99.5 cm round read 99.6 by the turn, where the two-view
+line, assuming a typical chest's shape, said 106.9. Which of the two is nearer
+the tape on real customers is the first thing the field rows will show.
 
 ## The second ruler: the eyes
 
@@ -192,7 +205,8 @@ during the hops — which, in software graphics, took 400 ms a call. On a slow
 device the page does the same: the hops get the frames, the knees go unwatched,
 and the answer says so.
 
-Not shown: how rigid real people are in the air, and how close the chest girth
-comes to a tape on real customers. Both need people and a tape measure, and
+Not shown: how rigid real people are in the air, how well the shoulders give
+the angle of a real turn, and how close the chest girth comes to a tape on real
+customers. Both need people and a tape measure, and
 `FIELD.md` says how to collect them. Until then, every accuracy number above is
 a statement about the method, not about the shop floor.

@@ -87,3 +87,88 @@ test('the verdict: room, and a coin toss only when the two sizes are close', () 
   assert.equal(clear.best.name, 'X Large');
   assert.equal(clear.coinToss, false);
 });
+
+// ——— the quarter turn ———
+import { chestFromTurn, fuseChests } from '../src/sizing.js';
+
+/** Width of a superellipse |x/a|^n + |y/b|^n = 1 seen at angle θ, and its perimeter, numerically. */
+function superellipse(a, b, n) {
+  const pts = [];
+  for (let k = 0; k < 4000; k++) {
+    const t = (2 * Math.PI * k) / 4000;
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    pts.push([a * Math.sign(c) * Math.abs(c) ** (2 / n), b * Math.sign(s) * Math.abs(s) ** (2 / n)]);
+  }
+  let P = 0;
+  for (let k = 0; k < pts.length; k++) {
+    const [x0, y0] = pts[k];
+    const [x1, y1] = pts[(k + 1) % pts.length];
+    P += Math.hypot(x1 - x0, y1 - y0);
+  }
+  const width = (th) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const [x, y] of pts) {
+      const p = x * Math.cos(th) + y * Math.sin(th);
+      lo = Math.min(lo, p);
+      hi = Math.max(hi, p);
+    }
+    return hi - lo;
+  };
+  return { P, width };
+}
+
+test('the turn arrives at the tape: an ellipse and a squarer chest', () => {
+  for (const n of [2, 2.8]) {
+    const { P, width } = superellipse(17, 12.5, n);
+    const samples = [];
+    // a customer who turns slowly at the start and the end, quickly in the middle
+    for (let k = 0; k <= 60; k++) {
+      const u = k / 60;
+      const angle = ((1 - Math.cos(Math.PI * u)) / 2) * (Math.PI / 2);
+      samples.push({ angle, widthCm: width(angle) });
+    }
+    const r = chestFromTurn(samples);
+    assert.ok(r.ok, r.reason);
+    assert.ok(Math.abs(r.chestCm / P - 1) < 0.01, `n=${n}: ${r.chestCm.toFixed(2)} against ${P.toFixed(2)}`);
+  }
+});
+
+test('angles read roughly still arrive near the tape', () => {
+  // the page reads each angle from the shoulders' apparent span, which is
+  // worst near facing and near side on — where the width hardly changes
+  const { P, width } = superellipse(17, 12.5, 2.8);
+  let s = 5;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647 - 0.5;
+  const samples = [];
+  for (let k = 0; k <= 80; k++) {
+    const angle = (k / 80) * (Math.PI / 2);
+    const seen = Math.acos(Math.min(1, Math.max(0, Math.cos(angle) + 0.06 * rnd())));
+    samples.push({ angle: seen, widthCm: width(angle) + 0.3 * rnd() });
+  }
+  const r = chestFromTurn(samples);
+  assert.ok(r.ok, r.reason);
+  assert.ok(Math.abs(r.chestCm / P - 1) < 0.02, `${r.chestCm.toFixed(2)} against ${P.toFixed(2)}`);
+});
+
+test('a turn half seen, or rushed through the middle, is refused', () => {
+  const { width } = superellipse(17, 12.5, 2.8);
+  const half = [];
+  for (let k = 0; k <= 30; k++) half.push({ angle: (k / 60) * (Math.PI / 2), widthCm: width((k / 60) * (Math.PI / 2)) });
+  assert.equal(chestFromTurn(half).ok, false);
+  const rushed = [];
+  for (const deg of [0, 3, 6, 9, 12, 15, 18, 21, 75, 78, 81, 84, 87, 89]) rushed.push({ angle: (deg * Math.PI) / 180, widthCm: width((deg * Math.PI) / 180) });
+  assert.equal(chestFromTurn(rushed).ok, false);
+});
+
+test('two readings of one chest: weighted when they agree, flagged when not', () => {
+  const f = fuseChests({ chestCm: 100, errCm: 2 }, { chestCm: 104, errCm: 4 });
+  assert.equal(f.agree, true);
+  assert.ok(Math.abs(f.chestCm - 100.8) < 1e-9);
+  assert.ok(f.errCm < 2);
+  const g = fuseChests({ chestCm: 100, errCm: 2 }, { chestCm: 120, errCm: 4 });
+  assert.equal(g.agree, false);
+  assert.equal(g.chestCm, 110);
+  assert.ok(g.errCm >= 10);
+});

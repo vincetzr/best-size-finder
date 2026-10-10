@@ -26,7 +26,7 @@ import { gravityScale } from './gravity.js';
 import { regulariseTimes } from './timing.js';
 import { TemplateTracker } from './track.js';
 import * as body from './body.js';
-import { girthFromWidthDepth, chestError, verdict, rankSizes, CHART, CHEST_RANGE } from './sizing.js';
+import { girthFromWidthDepth, chestError, chestFromTurn, fuseChests, verdict, rankSizes, CHART, CHEST_RANGE } from './sizing.js';
 import { IrisRuler, agree } from './iris.js';
 
 const $ = (id) => document.getElementById(id);
@@ -44,6 +44,10 @@ const LEG_FOLD_LIMIT = 0.03; // legs 3% shorter in the air: knees bent enough to
 const STILL_PX = 1.2; // per frame, mean movement of the shoulders to count as standing still
 const BURST = 7; // frames per picture; the median is kept
 const POSE_TOO_SLOW_MS = 120;
+// side on: the shoulders look less than this share as far apart as facing,
+// which is about seventy degrees turned (acos 0.35)
+const TURNED_SPAN = 0.35;
+const TURN_SETTLED = 0.03; // the span's range over eight frames, as a share of the facing span
 const EDGE_MARGIN = 0.04; // of the picture's width, kept clear either side of the trunk box
 const SLOW_FPS = 20; // below this many frames a second actually seen, a flight is too few points to fit
 const POSE_SHARE = 0.35; // while hopping, the pose model may use this share of each frame's time, on average
@@ -307,15 +311,24 @@ function shoulderMid(lm) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, span: Math.hypot(a.x - b.x, a.y - b.y) };
 }
 
-/** Mean movement of the shoulders over the last frames, px per frame. */
+/**
+ * Mean movement over the last frames, px per frame, of the shoulders, the hips
+ * and the nose, each on its own: someone turning on the spot keeps the point
+ * between their shoulders where it was, so that alone would call a turn still.
+ */
+const STILL_POINTS = [0, 11, 12, 23, 24];
 function stillness(n = 10) {
   const h = S.poseHistory.slice(-n);
   if (h.length < n) return Infinity;
   let s = 0;
   for (let i = 1; i < h.length; i++) {
-    const a = shoulderMid(h[i - 1].p.landmarks);
-    const b = shoulderMid(h[i].p.landmarks);
-    s += Math.hypot(a.x - b.x, a.y - b.y);
+    let m = 0;
+    for (const k of STILL_POINTS) {
+      const a = body.px(h[i - 1].p.landmarks[k], S.W, S.H);
+      const b = body.px(h[i].p.landmarks[k], S.W, S.H);
+      m += Math.hypot(a.x - b.x, a.y - b.y);
+    }
+    s += m / STILL_POINTS.length;
   }
   return s / (h.length - 1);
 }
@@ -694,6 +707,7 @@ function skipHop(why) {
 function enterPicture(which) {
   S.burst = [];
   S.pictureOk = 0;
+  if (which === 'side') S.turnSamples = [];
   setStage(which);
 }
 
@@ -722,16 +736,18 @@ function pictureStage(f, ts) {
   } else {
     const nose = L(body.LM.nose);
     const up = L(body.LM.leftWrist).y < nose.y && L(body.LM.rightWrist).y < nose.y;
-    const turned = S.front && sh.span < 0.5 * S.front.shoulderSpanPx;
-    if (!turned) {
-      cue('Turn a quarter to your left', 'So one shoulder points at the tablet. Feet where they are.');
+    if (!up) {
+      cue('Both arms straight up', 'Over your head. Then turn slowly to your left.');
       bar(0);
       S.burst = [];
       return;
     }
-    if (!up) {
-      cue('Both arms straight up', 'Over your head, and hold still.');
-      bar(0);
+    // every frame of the turn, arms up, is a width at an angle (turnSample)
+    turnSample(p, lm, sh);
+    const turned = S.front && sh.span < TURNED_SPAN * S.front.shoulderSpanPx;
+    if (!turned) {
+      cue('Now turn slowly to your left', 'Arms up, feet where they are, until one shoulder points straight at the tablet.');
+      bar(Math.min(0.9, (S.turnSamples || []).length / 40));
       S.burst = [];
       return;
     }
@@ -744,7 +760,7 @@ function pictureStage(f, ts) {
     bar(0);
     return;
   }
-  if (stillness(8) > STILL_PX) {
+  if (stillness(8) > STILL_PX || (which === 'side' && !turnSettled())) {
     cue('Hold still…', '', { speak: false });
     S.burst = [];
     bar(0);
@@ -801,6 +817,57 @@ function pictureStage(f, ts) {
   }
 }
 
+/**
+ * One frame of the quarter turn: the chest's width at the front picture's
+ * chest line, and the angle turned, read from how far apart the shoulders look
+ * against how far apart they looked facing (both put at one distance by the
+ * nose-to-heel ruler). acos of that ratio is least sure near facing and near
+ * side on, which is where a chest's width hardly changes with angle, so the
+ * mean width over the turn — which is all Cauchy's formula needs — barely
+ * notices (test/sizing.test.mjs: within 2 per cent).
+ */
+function turnSample(p, lm, sh) {
+  const sc = S.scale;
+  const nh = noseHeel(lm, sc.rectify);
+  if (!(nh > 0) || !p.mask) return;
+  const ratio = nh / sc.noseHeelPx; // nearer than at the hops by this much
+  const L = (i) => body.px(lm[i], S.W, S.H);
+  const heels = [body.LM.leftHeel, body.LM.rightHeel].filter((i) => vis(lm, i)).map((i) => L(i).y);
+  if (!heels.length) return;
+  const pxPerMetre = sc.pxPerMetre * ratio;
+  const y = Math.max(...heels) - S.front.chestAboveHeelM * pxPerMetre;
+  const hips = [L(body.LM.leftHip), L(body.LM.rightHip)];
+  const xc = (sh.x + (hips[0].x + hips[1].x) / 2) / 2;
+  const w = body.widthAtRow(p.mask, p.mw, p.mh, y, xc, S.W, S.H, { rows: 2, maxWidthPx: 1.3 * S.front.shoulderSpanPx * ratio });
+  if (!w.ok) return;
+  const a = sc.rectify(w.left, y);
+  const b = sc.rectify(w.right, y);
+  const widthCm = (100 * Math.abs(b.u - a.u)) / pxPerMetre;
+  (S.turnSamples ||= []).push({ span: sh.span / ratio, widthCm, t: performance.now() });
+}
+
+/**
+ * Has the turn stopped? People slow down as they come round to side on, and
+ * a slow last few degrees passes for standing still — and a chest at eighty
+ * degrees is a few per cent deeper than side on. So the side picture also
+ * waits for the shoulders' apparent span to stop shrinking.
+ */
+function turnSettled(n = 8) {
+  const h = S.poseHistory.slice(-n);
+  if (h.length < n || !S.front) return false;
+  const spans = h.map((x) => shoulderMid(x.p.landmarks).span);
+  return Math.max(...spans) - Math.min(...spans) < TURN_SETTLED * S.front.shoulderSpanPx;
+}
+
+/** The turn's samples with their angles, against the widest the shoulders were seen facing. */
+function turnAngles() {
+  const q = S.turnSamples || [];
+  if (q.length < 8) return [];
+  const spans = q.map((x) => x.span).sort((a, b) => a - b);
+  const facing = spans[Math.floor(0.9 * (spans.length - 1))]; // near the widest, not one noisy frame
+  return q.map((x) => ({ angle: Math.acos(Math.min(1, x.span / facing)), widthCm: x.widthCm }));
+}
+
 // ——— the answer ———
 function finish() {
   setStage('result');
@@ -813,11 +880,38 @@ function finish() {
   }
   // scatter between the frames of each picture adds to the scale's own error
   const measRel = Math.hypot(S.front.spreadCm / S.front.widthCm, S.side.spreadCm / S.side.depthCm) / 2;
-  const err = chestError({ chestCm: g.chestCm, scaleRel: Math.hypot(sc.rel, measRel), method: 'two-view' });
-  const v = verdict(g.chestCm, err);
-  const ranks = rankSizes(g.chestCm, err);
-  S.result = { chestCm: g.chestCm, errCm: err, method: g.method, verdict: v, ranks, widthCm: S.front.widthCm, depthCm: S.side.depthCm, scale: { source: sc.source, rel: sc.rel, heightM: sc.heightM } };
-  say(`Your chest measures ${Math.round(g.chestCm)} centimetres. That is a ${v.best.name}.`);
+  const twoView = { chestCm: g.chestCm, errCm: chestError({ chestCm: g.chestCm, scaleRel: Math.hypot(sc.rel, measRel), method: 'two-view' }) };
+  // the quarter turn, if enough of it was seen: measured all the way round
+  const turn = chestFromTurn(turnAngles());
+  let chestCm = twoView.chestCm;
+  let errCm = twoView.errCm;
+  let method = g.method;
+  let fused = null;
+  if (turn.ok && turn.chestCm >= CHEST_RANGE[0] && turn.chestCm <= CHEST_RANGE[1]) {
+    const t = { chestCm: turn.chestCm, errCm: chestError({ chestCm: turn.chestCm, scaleRel: sc.rel, method: 'turn' }) };
+    fused = fuseChests(t, twoView);
+    chestCm = fused.chestCm;
+    errCm = fused.errCm;
+    method = fused.agree ? 'turn and two pictures' : 'turn and two pictures, disagreeing';
+  }
+  const v = verdict(chestCm, errCm);
+  const ranks = rankSizes(chestCm, errCm);
+  S.result = {
+    chestCm,
+    errCm,
+    method,
+    verdict: v,
+    ranks,
+    widthCm: S.front.widthCm,
+    depthCm: S.side.depthCm,
+    twoViewCm: twoView.chestCm,
+    turnCm: turn.ok ? turn.chestCm : null,
+    turnCoverage: turn.coverage,
+    turnWhyNot: turn.ok ? null : turn.reason,
+    fused,
+    scale: { source: sc.source, rel: sc.rel, heightM: sc.heightM },
+  };
+  say(`Your chest measures ${Math.round(chestCm)} centimetres. That is a ${v.best.name}.`);
   renderAnswer();
   if (S.cam) for (const t of S.cam.stream.getTracks()) t.stop();
 }
@@ -877,7 +971,7 @@ function renderAnswer() {
     ${v.coinToss ? `<p class="note note--warn">The two sizes are close to a coin toss at this margin. Try both on if you can.</p>` : ''}
   </div>
   <div class="figures">
-    <div class="figure"><p class="figure__k">Chest</p><p class="figure__v">${R.chestCm.toFixed(1)} cm</p><p class="figure__n">± ${R.errCm.toFixed(1)} cm, all the way round</p></div>
+    <div class="figure"><p class="figure__k">Chest</p><p class="figure__v">${R.chestCm.toFixed(1)} cm</p><p class="figure__n">± ${R.errCm.toFixed(1)} cm${R.turnCm ? ', measured all the way round' : ', from width and depth'}</p></div>
     ${sc.heightM ? `<div class="figure"><p class="figure__k">Height</p><p class="figure__v">${(sc.heightM * 100).toFixed(0)} cm</p><p class="figure__n">in your shoes, ± ${Math.max(1, sc.heightM * 100 * sc.rel).toFixed(0)} cm — nobody asked</p></div>` : ''}
     <div class="figure"><p class="figure__k">Across · deep</p><p class="figure__v">${R.widthCm.toFixed(1)} · ${R.depthCm.toFixed(1)}</p><p class="figure__n">cm, from the two pictures</p></div>
   </div>
@@ -887,7 +981,15 @@ function renderAnswer() {
   <details class="hops"><summary>How it was measured</summary>
     <p class="note">Each dot is where your shoulders were in one frame; each curve is free fall fitted through a flight. Their bend is gravity, ${sc.source === 'gravity' ? `${(sc.fit.accel.mag).toFixed(0)} pixels per second per second here, which is ${sc.pxPerMetre.toFixed(1)} pixels to the metre where you stood.` : ''}</p>
     ${sc.source === 'gravity' ? hopSvg(sc) : ''}
-    <p class="note">Chest girth from width ${R.widthCm.toFixed(1)} cm and depth ${R.depthCm.toFixed(1)} cm by BEST's fit to tape-measured bodies (${esc(R.method)}). A chest is not quite an ellipse, so this is a starting point rather than a fitting: BEST cut to measure.</p>
+    <p class="note">${
+      R.turnCm
+        ? `Measured all the way round: the quarter turn gives ${R.turnCm.toFixed(1)} cm (π times the chest's mean width over the turn — Cauchy's formula, the length a tape follows). From the width and depth alone, BEST's fit to tape-measured bodies gives ${R.twoViewCm.toFixed(1)} cm. ${
+            R.fused && R.fused.agree
+              ? `They agree to ${Math.abs(R.fused.diffCm).toFixed(1)} cm, and the answer weighs them by how sure each is.`
+              : `They are ${Math.abs(R.fused.diffCm).toFixed(1)} cm apart — more than either should be wrong by, so the margin above is wide enough to cover both.`
+          }`
+        : `Chest girth from width ${R.widthCm.toFixed(1)} cm and depth ${R.depthCm.toFixed(1)} cm by BEST's fit to tape-measured bodies. A chest is not quite an ellipse, so this is a starting point rather than a fitting: BEST cut to measure.${R.turnWhyNot ? ` The quarter turn, which would have measured it all the way round, could not be read: ${esc(R.turnWhyNot)}` : ''}`
+    }</p>
     <p class="note mono">clock ${esc(S.hopTiming ? `${S.hopTiming.clock}, ${S.hopTiming.periodMs.toFixed(2)} ms frames, jitter ${S.hopTiming.jitterMs.toFixed(2)} ms${S.hopTiming.regular ? ' (snapped to the frame grid)' : ''}` : '—')}</p>
   </details>
   <details class="staff" id="staff"><summary>Check against a tape (for staff)</summary>
@@ -925,6 +1027,9 @@ function rowNow(tapeChest, tapeHeight) {
     chestCm: +R.chestCm.toFixed(1),
     chestErrCm: +R.errCm.toFixed(1),
     widthCm: +R.widthCm.toFixed(1),
+    turnCm: R.turnCm ? +R.turnCm.toFixed(1) : '',
+    twoViewCm: +R.twoViewCm.toFixed(1),
+    method: R.method,
     depthCm: +R.depthCm.toFixed(1),
     heightCm: sc.heightM ? +(sc.heightM * 100).toFixed(1) : '',
     size: R.verdict.best.name,

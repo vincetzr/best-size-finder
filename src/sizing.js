@@ -66,9 +66,88 @@ const SHAPE_REL = 0.04;
 const FLOOR_CM = 4;
 const COIN_TOSS = 0.2;
 
-/** ± in cm for a chest, given the scale's relative uncertainty. */
-export function chestError({ chestCm, scaleRel }) {
+// A chest measured all the way round (chestFromTurn) assumes no shape, so its
+// own error is smaller: 2 per cent and 2 cm, the August page's figures for
+// its turn (og and the floor in yS's turn branch). Asserted there too.
+const TURN_REL = 0.02;
+const TURN_FLOOR_CM = 2;
+
+/** ± in cm for a chest, given the scale's relative uncertainty and how it was read. */
+export function chestError({ chestCm, scaleRel, method = 'two-view' }) {
+  if (method === 'turn') return Math.max(TURN_FLOOR_CM, chestCm * Math.hypot(TURN_REL, scaleRel || 0));
   return Math.max(FLOOR_CM, chestCm * Math.hypot(SHAPE_REL, scaleRel || 0));
+}
+
+// A quarter turn read into this many bins of angle, at least this share of
+// them seen and no run of empty ones longer than this (the August page's AS:
+// bc, kS and sg).
+const TURN_BINS = 12;
+const TURN_COVERAGE = 0.75;
+const TURN_MAX_GAP = 2;
+
+/**
+ * Chest girth measured, not assumed: by Cauchy's formula the perimeter of a
+ * convex outline is the integral of its width over half a turn, and a tape
+ * round a chest follows exactly the convex outline. A body is (near enough)
+ * the same on its left as its right, so a quarter turn is half the integral:
+ * girth = π × the mean width over angles from facing (0) to side on (π/2).
+ *
+ * samples: [{ angle (radians, 0 facing, π/2 side on), widthCm }]. The widths
+ * are averaged within each bin of angle and then over the bins, so a customer
+ * who turns slowly at one angle does not count it twice; a bin nobody passed
+ * through is filled from its neighbours, up to a short gap.
+ */
+export function chestFromTurn(samples) {
+  const bins = Array.from({ length: TURN_BINS }, () => []);
+  for (const q of samples || []) {
+    if (!Number.isFinite(q.angle) || !(q.widthCm > 0)) continue;
+    const a = Math.min(Math.PI / 2 - 1e-9, Math.max(0, q.angle));
+    bins[Math.floor((a / (Math.PI / 2)) * TURN_BINS)].push(q.widthCm);
+  }
+  const mean = bins.map((b) => {
+    if (!b.length) return NaN;
+    const s = [...b].sort((x, y) => x - y);
+    return s[s.length >> 1]; // median within a bin: one stray frame does not move it
+  });
+  const seen = mean.filter(Number.isFinite).length;
+  const coverage = seen / TURN_BINS;
+  if (coverage < TURN_COVERAGE) return { ok: false, coverage, reason: 'Not enough of the turn was seen. Turn more slowly, all the way until one shoulder points at the tablet.' };
+  // ends must be seen: facing and side on are where the width is its widest and narrowest
+  if (!Number.isFinite(mean[0]) || !Number.isFinite(mean[TURN_BINS - 1])) return { ok: false, coverage, reason: 'The turn has to start facing the tablet and end side on.' };
+  let gap = 0;
+  for (const m of mean) {
+    gap = Number.isFinite(m) ? 0 : gap + 1;
+    if (gap > TURN_MAX_GAP) return { ok: false, coverage, reason: 'Part of the turn went by too fast. Turn slowly and steadily.' };
+  }
+  // fill the short gaps by straight lines between their neighbours
+  const filled = mean.slice();
+  for (let i = 0; i < TURN_BINS; i++) {
+    if (Number.isFinite(filled[i])) continue;
+    let l = i - 1;
+    while (!Number.isFinite(mean[l])) l--;
+    let r = i + 1;
+    while (!Number.isFinite(mean[r])) r++;
+    filled[i] = mean[l] + ((mean[r] - mean[l]) * (i - l)) / (r - l);
+  }
+  const avg = filled.reduce((a, b) => a + b, 0) / TURN_BINS;
+  return { ok: true, chestCm: Math.PI * avg, coverage, bins: filled };
+}
+
+/**
+ * One chest from two readings of it: weighted by their errors when they agree
+ * to within three of their combined errors, and when they do not, their middle
+ * with an error wide enough to cover both — and a flag, because one of them
+ * is wrong. Each is { chestCm, errCm }.
+ */
+export function fuseChests(a, b) {
+  const comb = Math.hypot(a.errCm, b.errCm);
+  const diff = a.chestCm - b.chestCm;
+  if (Math.abs(diff) <= 3 * comb) {
+    const wa = 1 / (a.errCm * a.errCm);
+    const wb = 1 / (b.errCm * b.errCm);
+    return { chestCm: (wa * a.chestCm + wb * b.chestCm) / (wa + wb), errCm: 1 / Math.sqrt(wa + wb), agree: true, diffCm: diff };
+  }
+  return { chestCm: (a.chestCm + b.chestCm) / 2, errCm: Math.max(a.errCm, b.errCm, Math.abs(diff) / 2), agree: false, diffCm: diff };
 }
 
 /** The standard normal CDF, Abramowitz and Stegun 7.1.26, as the August page had it (Hg). */

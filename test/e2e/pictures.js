@@ -6,9 +6,48 @@
 // video, standing a little nearer than they hopped (so carrying the scale
 // from the hops to the pictures is tested too).
 //
-// window.__scanTruth = { pxPerMetre, widthM, depthM, nearer } is set by run.mjs.
+// window.__scanTruth = { pxPerMetre, widthM, depthM, nearer, n } is set by run.mjs.
+//
+// Side on, the person TURNS: facing with arms up, then a quarter turn to the
+// left that is slow at the ends and quick in the middle, then still. The
+// trunk's cross-section is a superellipse |x/a|^n + |y/b|^n = 1 (squarer than
+// an ellipse, as chests are), so its width at each angle, and its perimeter —
+// what a tape would read — are known.
 (() => {
   const T = () => window.__scanTruth;
+  let sideFrame = 0;
+  let lastStage = '';
+  let section = null;
+  function crossSection(a, b, n) {
+    const pts = [];
+    for (let k = 0; k < 2000; k++) {
+      const t = (2 * Math.PI * k) / 2000;
+      const c = Math.cos(t);
+      const s = Math.sin(t);
+      pts.push([a * Math.sign(c) * Math.abs(c) ** (2 / n), b * Math.sign(s) * Math.abs(s) ** (2 / n)]);
+    }
+    let P = 0;
+    for (let k = 0; k < pts.length; k++) P += Math.hypot(pts[(k + 1) % pts.length][0] - pts[k][0], pts[(k + 1) % pts.length][1] - pts[k][1]);
+    const width = (th) => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const [x, y] of pts) {
+        const q = x * Math.cos(th) + y * Math.sin(th);
+        if (q < lo) lo = q;
+        if (q > hi) hi = q;
+      }
+      return hi - lo;
+    };
+    return { P, width };
+  }
+  // the angle turned, by frames into the side stage
+  const FACING = 12;
+  const TURNING = 70;
+  const angleAt = (k) => {
+    if (k < FACING) return 0;
+    const u = Math.min(1, (k - FACING) / TURNING);
+    return ((1 - Math.cos(Math.PI * u)) / 2) * (Math.PI / 2);
+  };
 
   function body(stage, S) {
     const W = S.W;
@@ -29,13 +68,18 @@
     const knee = 0.28 * noseH;
     const L = Array.from({ length: 33 }, () => P(0, noseH));
     const front = stage === 'front';
+    if (!section) section = crossSection(t.widthM / 2, t.depthM / 2, t.n);
+    window.__scanTruth.perimeterM = section.P;
+    const th = front ? 0 : angleAt(sideFrame);
+    const c = Math.cos(th);
     // person's left is the picture's right, facing an unmirrored camera
-    const half = front ? 0.18 : 0.02;
-    L[0] = P(front ? 0 : 0.1, noseH);
-    L[2] = P(front ? 0.03 : 0.08, noseH + 0.03);
-    L[5] = P(front ? -0.03 : 0.08, noseH + 0.03);
-    L[7] = P(front ? 0.075 : -0.02, noseH);
-    L[8] = P(front ? -0.075 : -0.02, noseH);
+    const half = 0.18 * c;
+    const sn = Math.sin(th);
+    L[0] = P(0.1 * sn, noseH);
+    L[2] = P(0.03 * c + 0.08 * sn, noseH + 0.03);
+    L[5] = P(-0.03 * c + 0.08 * sn, noseH + 0.03);
+    L[7] = P(0.075 * c - 0.02 * sn, noseH);
+    L[8] = P(-0.075 * c - 0.02 * sn, noseH);
     L[11] = P(half, sh);
     L[12] = P(-half, sh);
     if (front) {
@@ -44,10 +88,10 @@
       L[15] = P(0.78, sh);
       L[16] = P(-0.78, sh);
     } else {
-      L[13] = P(0.03, noseH + 0.05);
-      L[14] = P(-0.01, noseH + 0.05);
-      L[15] = P(0.04, noseH + 0.3);
-      L[16] = P(0.0, noseH + 0.3);
+      L[13] = P(0.12 * c, noseH + 0.05);
+      L[14] = P(-0.12 * c, noseH + 0.05);
+      L[15] = P(0.1 * c, noseH + 0.3);
+      L[16] = P(-0.1 * c, noseH + 0.3);
     }
     for (const [i, x] of [
       [17, 0.8],
@@ -57,7 +101,7 @@
       L[i] = { ...L[15], x: front ? X(x) / W : L[15].x };
       L[i + 1] = { ...L[16], x: front ? X(-x) / W : L[16].x };
     }
-    const hx = front ? 0.1 : 0.02;
+    const hx = 0.1 * Math.max(c, 0.2);
     L[23] = P(hx, hip);
     L[24] = P(-hx, hip);
     L[25] = P(hx, knee);
@@ -86,7 +130,7 @@
         }
       }
     };
-    const span = front ? t.widthM : t.depthM;
+    const span = section.width(th); // the cross-section's width at this angle
     box(-span / 2, span / 2, hip - 0.05, sh + 0.02); // trunk
     box(-0.06, 0.06, sh, noseH - 0.05); // neck
     box(-0.08, 0.08, noseH - 0.12, noseH + 0.11); // head
@@ -95,7 +139,10 @@
     if (front) {
       box(span / 2 - 0.01, 0.84, sh - 0.025, sh + 0.035); // arms out, thin
       box(-0.84, -span / 2 + 0.01, sh - 0.025, sh + 0.035);
-    } else box(-0.05, 0.07, sh, noseH + 0.35); // arms up, behind the head
+    } else {
+      box(-0.12 * c - 0.04, -0.12 * c + 0.04, sh + 0.04, noseH + 0.35); // arms up, beside the head
+      box(0.12 * c - 0.04, 0.12 * c + 0.04, sh + 0.04, noseH + 0.35);
+    }
     return {
       landmarks: [L],
       segmentationMasks: [{ width: W, height: H, getAsFloat32Array: () => mask, close() {} }],
@@ -107,7 +154,15 @@
     delegate: real.delegate,
     detectForVideo(source, ts) {
       const S = window.__scan;
-      if (T() && (S.stage === 'front' || S.stage === 'side')) return body(S.stage, S);
+      if (S.stage !== lastStage) {
+        lastStage = S.stage;
+        sideFrame = 0;
+      }
+      if (T() && (S.stage === 'front' || S.stage === 'side')) {
+        const r = body(S.stage, S);
+        if (S.stage === 'side') sideFrame++;
+        return r;
+      }
       return real.detectForVideo(source, ts);
     },
     setOptions: (...a) => real.setOptions && real.setOptions(...a),
