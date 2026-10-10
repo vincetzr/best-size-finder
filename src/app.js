@@ -57,6 +57,7 @@ const FRAME_STILL_FRAMES = 15; // still frames, hands on hips, before the hops b
 // side on: the shoulders look less than this share as far apart as facing,
 // which is about seventy degrees turned (acos 0.35)
 const TURNED_SPAN = 0.35;
+const TURN_STARTED_FACING = 0.85; // the turn's widest shoulder span, at least this share of the front picture's
 const TURN_SETTLED = 0.03; // the span's range over eight frames, as a share of the facing span
 const EDGE_MARGIN = 0.04; // of the picture's width, kept clear either side of the trunk box
 const SLOW_FPS = 20; // below this many frames a second actually seen, a flight is too few points to fit
@@ -912,12 +913,23 @@ function turnSettled(n = 8) {
   return Math.max(...spans) - Math.min(...spans) < TURN_SETTLED * S.front.shoulderSpanPx;
 }
 
-/** The turn's samples with their angles, against the widest the shoulders were seen facing. */
+/**
+ * The turn's samples with their angles, against the widest the shoulders were
+ * seen during it. A turn that began already part way round never showed the
+ * shoulders' full span, and every angle against it would be too small; so
+ * that widest span must be near the front picture's (both put at the hops'
+ * distance), or there are no angles and the turn is not used.
+ */
 function turnAngles() {
   const q = S.turnSamples || [];
   if (q.length < 8) return [];
   const spans = q.map((x) => x.span).sort((a, b) => a - b);
   const facing = spans[Math.floor(0.9 * (spans.length - 1))]; // near the widest, not one noisy frame
+  const frontSpan = S.front.shoulderSpanPx / S.front.distanceRatio;
+  if (facing < TURN_STARTED_FACING * frontSpan) {
+    S.turnStartedLate = true;
+    return [];
+  }
   return q.map((x) => ({ angle: Math.acos(Math.min(1, x.span / facing)), widthCm: x.widthCm }));
 }
 
@@ -960,7 +972,13 @@ function finish() {
     twoViewCm: twoView.chestCm,
     turnCm: fused ? turn.chestCm : null,
     turnCoverage: turn.coverage,
-    turnWhyNot: fused ? null : turn.ok ? `it came to ${Math.round(turn.chestCm)} cm, which no adult chest is` : turn.reason,
+    turnWhyNot: fused
+      ? null
+      : S.turnStartedLate
+        ? 'it began already part way round. Raise both arms facing the tablet first, then turn.'
+        : turn.ok
+          ? `it came to ${Math.round(turn.chestCm)} cm, which no adult chest is`
+          : turn.reason,
     fused,
     scale: { source: sc.source, rel: sc.rel, heightM: sc.heightM },
   };
