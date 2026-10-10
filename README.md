@@ -51,7 +51,9 @@ without the known length above. The customer hops five times on the spot. In the
 air they are in free fall, and free fall is 9.81 m/s² for everyone, so the
 acceleration of their trunk in the picture, in pixels per second squared, divided
 by g, is pixels per metre at the body — no card, no mark on the floor, no height
-typed in. Their height comes out as a by-product, which they can check for
+typed in. Then a picture facing, arms out, and a slow quarter turn with the arms
+up: by Cauchy's formula π times the chest's mean width over the turn is the
+length a tape would follow round it. Their height comes out as a by-product, which they can check for
 themselves against what they know. The eyes, read close up when they tap Start
 (the iris is 11.7 mm in nearly every adult), give a second, independent scale to
 check it against.

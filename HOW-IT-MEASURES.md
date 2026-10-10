@@ -116,16 +116,18 @@ mass to the tracked trunk — removes the bias exactly when the pose is accurate
 to 0.3 px, and costs more than it saves at 0.8 px, so the page gates rather
 than corrects.
 
-## Carrying the scale to the two pictures
+## Carrying the scale to the chest
 
-The hops give pixels per metre where the customer stood. The chest is then
-photographed facing (arms out, for the width) and side on (arms up, for the
-depth). Between pictures a customer may shuffle a few centimetres, which at two
-and a half metres is a per cent or two; so the scale is carried by their own
-nose-to-heel height in pixels, which neither raising the arms nor turning on the
-spot changes. The girth comes from width and depth by the August page's fit to
-tape-measured bodies (1.418 w + 1.015 d + 33.52, Ramanujan's ellipse outside it),
-ported as it was (`src/sizing.js`), and BEST's chart from there.
+The hops give pixels per metre where the customer stood. The chest is then read
+twice over: a picture facing, arms out like a T, for its width; and a slow
+quarter turn with the arms up, ending side on, for its depth — and, frame by
+frame, its width at every angle in between (next section). Between the hops and
+the pictures a customer may shuffle a few centimetres, which at two and a half
+metres is a per cent or two; so the scale is carried by their own nose-to-heel
+height in pixels, which neither raising the arms nor turning on the spot
+changes. From the width and depth alone the girth comes by the August page's fit
+to tape-measured bodies (1.418 w + 1.015 d + 33.52, Ramanujan's ellipse outside
+it), ported as it was (`src/sizing.js`), and BEST's chart from there.
 
 ## Where the error is now: the chest's shape
 
