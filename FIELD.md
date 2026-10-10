@@ -34,7 +34,9 @@ So every row collects both.
 
 1. Measure height (shoes on) and chest by tape. Write them down before the page
    gives its answer, not after.
-2. Run the page: `…/scan/`. Follow it through.
+2. Run the page from the staff link, `…/scan/?staff` — the tape-check panel
+   only appears there, so customers never see earlier customers' rows. Follow
+   it through.
 3. On the answer, open **Check against a tape (for staff)**, type the two numbers
    and press *Save this row*. The row is kept on this device only.
 4. Run it twice more for the same person if there is time: the spread between
