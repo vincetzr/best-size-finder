@@ -91,9 +91,12 @@ test('too few frames, no answer', () => {
   assert.equal(r.scaleAtTrunk({ focalPx: F }), null);
 });
 
-test('the two rulers: agreeing, and ten per cent apart', () => {
+test('the two rulers: two and ten per cent apart agree, fifteen does not', () => {
+  // gravity ±1 per cent and the eyes ±4 combine to about ±4.1: three of those
+  // is twelve per cent, which is how far apart the two can honestly be
   const g = { pxPerMetre: 400, rel: 0.01 };
   assert.equal(agree(g, { pxPerMetre: 408, rel: 0.04 }).verdict, 'agree');
+  assert.equal(agree(g, { pxPerMetre: 440, rel: 0.04 }).verdict, 'agree');
   const off = agree(g, { pxPerMetre: 460, rel: 0.04 });
   assert.equal(off.verdict, 'disagree');
   assert.ok(off.z > 3);

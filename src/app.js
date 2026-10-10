@@ -40,7 +40,11 @@ const DEBUG = params.has('debug');
 const NOMINAL_DIAGONAL_FOV_DEG = 75;
 const LEVEL_TOLERANCE_DEG = 5;
 const HOPS_WANTED = 5;
-const LEG_FOLD_LIMIT = 0.03; // legs 3% shorter in the air: knees bent enough to move the centre of mass ~4 mm
+const LEG_FOLD_LIMIT = 0.03; // legs 3% shorter (against the trunk) in the air: about a 20° knee fold, ~2 mm of centre of mass
+// the height is read to the pose model's lowest heel or toe point, which sits a
+// little above the floor and not always the same amount: a fixed doubt, apart
+// from the scale's (the end-to-end test reads about 1.5 cm short)
+const HEIGHT_LANDMARK_CM = 2;
 const STILL_PX = 1.2; // per frame, mean movement of the shoulders to count as standing still
 const BURST = 7; // frames per picture; the median is kept
 const POSE_TOO_SLOW_MS = 120;
@@ -677,7 +681,7 @@ function finishHop() {
   };
   const irisAt = S.iris.scaleAtTrunk({ focalPx: S.camera.focalPx });
   if (irisAt) S.irisCheck = agree({ pxPerMetre: g.pxPerMetre, rel: g.rel }, irisAt);
-  cue(heightM ? `You are ${(heightM * 100).toFixed(0)} cm tall` : 'Got it', heightM ? 'Measured by gravity, in your shoes. If that is right, so is the rest.' : '');
+  cue(heightM ? `You are about ${(heightM * 100).toFixed(0)} cm tall` : 'Got it', heightM ? 'Measured by gravity, in your shoes. If that is close, the scale is right.' : '');
   setTimeout(() => enterPicture('front'), 3200);
 }
 
@@ -948,8 +952,8 @@ function renderAnswer() {
   ).join('');
   const irisLine = S.irisCheck
     ? S.irisCheck.verdict === 'agree'
-      ? `Your eyes, read close up when you started, put the scale ${((S.irisCheck.ratio - 1) * 100).toFixed(1)} per cent from gravity's — within what eyes vary by, so the two agree.`
-      : `Your eyes, read close up when you started, put the scale ${((S.irisCheck.ratio - 1) * 100).toFixed(1)} per cent from gravity's. That is more than eyes vary by: worth measuring again.`
+      ? `Your eyes, read close up when you started, put the scale ${((S.irisCheck.ratio - 1) * 100).toFixed(1)} per cent from gravity's — within the two rulers' combined margin, so they agree.`
+      : `Your eyes, read close up when you started, put the scale ${((S.irisCheck.ratio - 1) * 100).toFixed(1)} per cent from gravity's. That is more than the two rulers' combined margin: worth measuring again.`
     : '';
   const scaleLine =
     sc.source === 'gravity'
@@ -972,7 +976,7 @@ function renderAnswer() {
   </div>
   <div class="figures">
     <div class="figure"><p class="figure__k">Chest</p><p class="figure__v">${R.chestCm.toFixed(1)} cm</p><p class="figure__n">± ${R.errCm.toFixed(1)} cm${R.turnCm ? ', measured all the way round' : ', from width and depth'}</p></div>
-    ${sc.heightM ? `<div class="figure"><p class="figure__k">Height</p><p class="figure__v">${(sc.heightM * 100).toFixed(0)} cm</p><p class="figure__n">in your shoes, ± ${Math.max(1, sc.heightM * 100 * sc.rel).toFixed(0)} cm — nobody asked</p></div>` : ''}
+    ${sc.heightM ? `<div class="figure"><p class="figure__k">Height</p><p class="figure__v">${(sc.heightM * 100).toFixed(0)} cm</p><p class="figure__n">in your shoes, ± ${Math.hypot(HEIGHT_LANDMARK_CM, sc.heightM * 100 * sc.rel).toFixed(0)} cm — nobody asked</p></div>` : ''}
     <div class="figure"><p class="figure__k">Across · deep</p><p class="figure__v">${R.widthCm.toFixed(1)} · ${R.depthCm.toFixed(1)}</p><p class="figure__n">cm, from the two pictures</p></div>
   </div>
   <p class="note">${esc(scaleLine)} ${esc(irisLine)}</p>

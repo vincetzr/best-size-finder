@@ -112,7 +112,7 @@ test('noise with no hop in it is refused', () => {
   assert.equal(fitGravity(samples).ok, false);
 });
 
-test('sixty frames a second is half the scatter of thirty', () => {
+test('sixty frames a second scatters about a third less than thirty', () => {
   const a = run({ fps: 30 });
   const b = run({ fps: 60 });
   assert.ok(b.sd < 0.75 * a.sd, `30fps ${(100 * a.sd).toFixed(2)}%, 60fps ${(100 * b.sd).toFixed(2)}%`);

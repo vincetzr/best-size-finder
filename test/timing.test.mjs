@@ -93,6 +93,25 @@ test('snapping never puts two frames in one slot', () => {
   for (let seed = 1; seed < 40; seed++) {
     const { t } = delivered({ keep: 0.6, jitterMs: 7, seed });
     const r = regulariseTimes(t);
-    for (let i = 1; i < r.times.length; i++) assert.ok(r.times[i] > r.times[i - 1], `seed ${seed}`);
+    for (let i = 1; i < r.times.length; i++) assert.ok(r.times[i] !== r.times[i - 1], `seed ${seed}`);
   }
+});
+
+test('a long recording with 5 ms of jitter still snaps, a stray pair kept as it was', () => {
+  // a thousand frames: at 5 ms an occasional pair of stamps lands in one slot;
+  // that must cost those two frames their snapping, not every frame its
+  let snappedRuns = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const { t, frames } = delivered({ n: 1000, keep: 0.85, jitterMs: 5, seed });
+    const r = regulariseTimes(t);
+    if (!r.regular) continue;
+    snappedRuns++;
+    let worst = 0;
+    for (let i = 0; i < t.length; i++) {
+      const err = Math.abs(r.times[i] - r.times[0] - (frames[i] - frames[0]) / 30);
+      worst = Math.max(worst, err);
+    }
+    assert.ok(worst < 0.02, `seed ${seed}: ${worst}`); // at most a raw stamp's own jitter, never a frame
+  }
+  assert.ok(snappedRuns >= 19, `${snappedRuns} of 20 snapped`);
 });

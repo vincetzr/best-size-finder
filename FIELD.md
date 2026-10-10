@@ -8,9 +8,15 @@ people, in an afternoon, with a tape measure.
 
 The page reports the customer's height, measured, never asked. Height is the
 cleanest test of the gravity ruler there is, because it involves no model of a
-chest: if the height is right to a centimetre, the scale is right to about half
-a per cent, and any remaining error in the chest is the chest model's. If the
-height is wrong, nothing after it can be right, and the hops are where to look.
+chest — with one catch: the page measures from the top of the head to the pose
+model's lowest heel or toe point, which sits somewhere above the floor, so its
+height carries a fixed offset that has nothing to do with the scale (in the
+end-to-end test, about 1.5 cm short with the scale right). So read the scale
+from the heights the way an offset allows: the *mean* height error is that
+offset plus the scale's bias, and cannot separate them; the *spread* of the
+height errors, and whether they grow with height (a scale error does, an offset
+does not), are the scale's. If the heights scatter by more than a couple of
+centimetres, the hops are where to look.
 
 So every row collects both.
 
@@ -46,8 +52,9 @@ frame clock and its jitter, and the size it chose.
 
 What to work out:
 
-- **height error** (page − tape): its mean is the scale's bias, its spread the
-  scale's scatter. Expect about ±1 per cent if the hops behave as simulated.
+- **height error** (page − tape): its mean is the landmark offset above plus
+  the scale's bias; its spread, and its slope against height, are the scale's.
+  Expect a spread of about 1 per cent if the hops behave as simulated.
 - **chest error** (page − tape): mean and spread, and how much of it the height
   error explains (chest error ÷ chest against height error ÷ height should line
   up if the scale is to blame).

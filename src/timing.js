@@ -133,7 +133,6 @@ export function regulariseTimes(times, frameNumbers) {
   // in the same slot; otherwise the grid is a guess, and the real stamps are
   // better than a guess
   if (!(grid.R > 0.25)) return { ...out, R: grid.R };
-  for (let i = 1; i < grid.n.length; i++) if (grid.n[i] <= grid.n[i - 1]) return { ...out, collided: true };
   // lag-one autocorrelation of the residuals: a drifting clock or a changing
   // frame rate shows up as long runs of the same sign
   const r = grid.residual;
@@ -146,7 +145,21 @@ export function regulariseTimes(times, frameNumbers) {
   }
   const rho = den > 0 ? num / den : 0;
   if (rho > 0.5) return { ...out, rho };
-  return { times: grid.n.map((k) => grid.offset + grid.period * k), regular: true, jitterMs, periodMs: grid.period * 1000, rho };
+  // Two stamps a long way out can land in one slot (with 5 ms of jitter, one
+  // pair in a thousand frames). The camera did not take two frames at once,
+  // so one of them is in the wrong slot — but which is a guess, and guessing
+  // wrong puts a point a whole frame out. Those two keep their own stamps;
+  // every other frame takes the grid's.
+  const snapped = grid.n.map((k) => grid.offset + grid.period * k);
+  let collided = 0;
+  for (let i = 1; i < grid.n.length; i++)
+    if (grid.n[i] <= grid.n[i - 1]) {
+      snapped[i] = times[i];
+      snapped[i - 1] = times[i - 1];
+      collided++;
+    }
+  if (collided > 0.05 * grid.n.length) return { ...out, collided }; // a grid that fits that badly is no grid
+  return { times: snapped, regular: true, jitterMs, periodMs: grid.period * 1000, rho, collided };
 }
 
 /**

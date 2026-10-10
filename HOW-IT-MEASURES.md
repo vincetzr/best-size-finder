@@ -35,14 +35,18 @@ What has to be true, and how the page makes it so:
 1. **The frames' capture times are known.** The answer is in seconds squared, so
    a mistimed frame is a misplaced point. `src/timing.js` takes the capture clock
    from `requestVideoFrameCallback` and, when the stamps scatter, snaps them back
-   onto the camera's own regular grid — found by a periodogram, used only when
-   the scatter is white (`test/gravity.test.mjs`: 5 ms of jitter costs nothing).
+   onto the camera's own regular grid — from the browser's own frame count
+   where it gives one, otherwise by a periodogram — used only when the scatter
+   is white (`test/timing.test.mjs`; in the table below, 5 ms of jitter scatters
+   0.59 per cent against 0.57 for none).
 2. **The trunk moves with the centre of mass in the air.** It does when the body
    is held still: hands on hips, knees straight, the ankles doing the hopping.
    Folding the legs moves the centre of mass against the trunk and reads as
    gravity being stronger or weaker (the NOT RIGID rows below). The page watches
-   the legs with the pose model and drops any hop in which they shortened by
-   more than 3 per cent (about 4 mm of centre-of-mass movement).
+   the legs with the pose model and drops any hop in which they shortened, against
+   the trunk, by more than 3 per cent: about a 20° fold of the knees, which by the
+   segment model moves the centre of mass about 2 mm against the trunk — worth
+   about a per cent by the table, at worst.
 3. **Only flight is fitted.** Ground force rises from nothing at touch-down, so
    the first frame on the ground sits almost on the parabola — the trap that
    makes this harder than it looks. Contact can only hold a body *up* against
@@ -60,7 +64,8 @@ What has to be true, and how the page makes it so:
    level camera would have seen, in which a fall is exactly a parabola. A level
    on the screen asks for the tablet upright to within 5°; with that, a focal
    length a fifth out costs under 0.6 per cent. Tilted 20° with the picture
-   rectified, a 40 cm chest still measures 40.0 cm (`test/level.test.mjs`).
+   rectified, a 40 cm chest measures 39.9 cm, as it does through a level camera
+   (`test/level.test.mjs`).
 
 Every hop is a reading; they share one acceleration and are fitted together, and
 the spread between them sets the error bar — which, on every case simulated, is
@@ -92,7 +97,7 @@ five hops, 30 fps, scale error in per cent (`node sim/montecarlo.mjs`):
 | rolling shutter, 30 ms readout down the rows | 0.06 | 0.63 | 1.19 | 0.71 | 0/200 |
 | motion blur, 25 ms exposure | 0.17 | 0.62 | 1.23 | 0.71 | 0/200 |
 | timestamps jittered 2 ms | 0.17 | 0.58 | 1.25 | 0.69 | 0/200 |
-| timestamps jittered 5 ms | 0.17 | 0.58 | 1.28 | 0.69 | 0/200 |
+| timestamps jittered 5 ms | 0.17 | 0.59 | 1.23 | 0.69 | 2/200 |
 | one frame in ten lost | 0.10 | 0.76 | 1.43 | 0.77 | 2/200 |
 | tracking slips: 3% of frames 12 px off | 0.08 | 0.70 | 1.35 | 0.74 | 1/200 |
 | drifting towards the camera 5 cm/s | 0.73 | 0.85 | 1.93 | 0.85 | 0/200 |
@@ -159,7 +164,10 @@ When the turn is read, the answer weighs it against the two-view line by how
 sure each is (2 per cent against 4, the August page's own figures for each,
 neither yet checked against a tape), and says if they disagree by more than
 either should be wrong by. When it is not — turned too fast, or not all the way —
-the two-view line stands alone, and the answer says why. End to end, a drawn
+the two-view line stands alone, and the answer says why. It matters for which
+size: at ±4 cm the two-view line alone cannot separate sizes 4 cm apart (2X Small
+to Large) — the best of two neighbours always wins by less than twenty points,
+and the page says it is close to a coin toss. At the turn's ±2 cm it usually can. End to end, a drawn
 chest whose outline is 99.5 cm round read 99.6 by the turn, where the two-view
 line, assuming a typical chest's shape, said 106.9. Which of the two is nearer
 the tape on real customers is the first thing the field rows will show.

@@ -8,8 +8,8 @@
  *
  * Frames arrive through requestVideoFrameCallback, with the clock chosen by
  * timing.js. Sixty frames a second is asked for and thirty accepted: the
- * gravity ruler's scatter halves at sixty, but it is under one per cent at
- * thirty.
+ * gravity ruler's scatter falls by about a third at sixty (0.57 to 0.37 per
+ * cent on the simulator), and is under one per cent at thirty.
  */
 import { frameTime } from './timing.js';
 
