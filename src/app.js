@@ -160,9 +160,11 @@ async function start() {
   setStage('loading');
   try {
     const [pose, face] = await Promise.all([createPose({ masks: true }), createFace().catch(() => null)]);
-    S.pose = pose;
+    // the end-to-end test hands in a pose model of its own for the two
+    // pictures, which a photograph cannot pose for; nothing else sets this
+    S.pose = typeof window.__scanWrapPose === 'function' ? window.__scanWrapPose(pose) : pose;
     S.face = face;
-    if (!pose.hasMasks) {
+    if (!S.pose.hasMasks) {
       showFailure('This device’s graphics could not run the body-outline model, and the chest’s width needs it. Try another browser, or another device.');
       return;
     }

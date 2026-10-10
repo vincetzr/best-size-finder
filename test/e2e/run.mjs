@@ -3,8 +3,10 @@
 //
 //   node test/e2e/run.mjs <cutoutdir>     (see cutout.mjs; the video is built once)
 //
-// Passes if the page's pixels-per-metre is within 2 per cent of the truth and
-// the height it reports within 3 cm. What it shows: that the camera clock, the
+// Passes if the page's pixels-per-metre is within 2 per cent of the truth, the
+// height it reports within 3 cm, and — for the two pictures, drawn by
+// pictures.js at the true scale with a known chest — the width, depth, girth and
+// size it then reads are the ones that scale implies. What it shows: that the camera clock, the
 // tracker on real pixels and the fit work together in a browser. What it does
 // not: how a real body behaves in the air.
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
@@ -35,6 +37,10 @@ const browser = await chromium.launch({
 });
 const ctx = await browser.newContext({ viewport: { width: 540, height: 960 } });
 await ctx.grantPermissions(['camera']);
+// the two pictures, which the photograph cannot pose for (pictures.js)
+const PICTURE = { widthM: 0.34, depthM: 0.25, nearer: 1.03 };
+await ctx.addInitScript(`window.__scanTruth = ${JSON.stringify({ ...PICTURE, pxPerMetre: truth.pxPerMetre })};`);
+await ctx.addInitScript({ path: path.join(here, 'pictures.js') });
 const page = await ctx.newPage();
 const logs = [];
 page.on('console', (m) => logs.push(m.text()));
@@ -45,7 +51,8 @@ await page.click('#start');
 let lastCue = '';
 const t0 = Date.now();
 let state = null;
-while (Date.now() - t0 < 150000) {
+let scaleAt = null;
+while (Date.now() - t0 < 300000) {
   state = await page.evaluate(() => {
     const S = window.__scan;
     return {
@@ -55,6 +62,9 @@ while (Date.now() - t0 < 150000) {
       fit: S.hopFit && !S.hopFit.ok ? S.hopFit.message : null,
       timing: S.hopTiming,
       samples: S.hop ? S.hop.samples.length : 0,
+      result: S.result && !S.result.failed && { chestCm: S.result.chestCm, errCm: S.result.errCm, widthCm: S.result.widthCm, depthCm: S.result.depthCm, size: S.result.verdict.best.name, method: S.result.method },
+      failed: S.result && S.result.failed,
+      answer: document.getElementById('answer').hidden ? '' : document.getElementById('answer').innerText.slice(0, 400),
       W: S.W,
       H: S.H,
     };
@@ -63,7 +73,8 @@ while (Date.now() - t0 < 150000) {
     console.log(`${((Date.now() - t0) / 1000).toFixed(1).padStart(6)} s  [${state.stage}] ${state.cue}`);
     lastCue = state.cue;
   }
-  if (state.scale) break;
+  if (state.scale && !scaleAt) scaleAt = { ...state };
+  if (state.result || /failed/.test(state.stage)) break;
   await new Promise((r) => setTimeout(r, 200));
 }
 await page.screenshot({ path: path.join(cut, 'last.png') });
@@ -76,10 +87,23 @@ if (!state || !state.scale) {
   process.exit(1);
 }
 const err = state.scale.pxPerMetre / truth.pxPerMetre - 1;
+// the pictures: what the page should read, given the scale it measured
+const k = truth.pxPerMetre / state.scale.pxPerMetre;
+const wantW = 100 * PICTURE.widthM * k;
+const wantD = 100 * PICTURE.depthM * k;
+const wantChest = 1.418 * wantW + 1.015 * wantD + 33.52;
 const hErr = state.scale.heightM !== null ? (state.scale.heightM - truth.statureM) * 100 : NaN;
 console.log(`video ${state.W}x${state.H}; ${state.samples} tracked frames; clock ${JSON.stringify(state.timing)}`);
 console.log(`scale  ${state.scale.pxPerMetre.toFixed(2)} px/m against ${truth.pxPerMetre.toFixed(2)}: ${(100 * err).toFixed(2)} per cent (claimed ±${(100 * state.scale.rel).toFixed(2)}), ${state.scale.hopsUsed} hops`);
 console.log(`height ${state.scale.heightM !== null ? (state.scale.heightM * 100).toFixed(1) : '—'} cm against ${(truth.statureM * 100).toFixed(1)}: ${hErr.toFixed(1)} cm`);
-const pass = Math.abs(err) < 0.02 && !(Math.abs(hErr) > 3);
+let picturesOk = false;
+if (state.result) {
+  const r = state.result;
+  console.log(`width  ${r.widthCm.toFixed(2)} cm against ${wantW.toFixed(2)}; depth ${r.depthCm.toFixed(2)} against ${wantD.toFixed(2)}`);
+  console.log(`chest  ${r.chestCm.toFixed(1)} ± ${r.errCm.toFixed(1)} cm (${r.method}) against ${wantChest.toFixed(1)}; size ${r.size}`);
+  console.log(`answer: ${state.answer.replace(/\s+/g, ' ').slice(0, 300)}`);
+  picturesOk = Math.abs(r.widthCm - wantW) < 0.3 && Math.abs(r.depthCm - wantD) < 0.3 && Math.abs(r.chestCm - wantChest) < 0.6 && state.answer.includes(r.size);
+} else console.log(`pictures: no result (${state.stage}: ${state.cue}${state.failed ? `; ${state.failed}` : ''})`);
+const pass = Math.abs(err) < 0.02 && !(Math.abs(hErr) > 3) && picturesOk;
 console.log(pass ? 'PASS' : 'FAIL');
 process.exit(pass ? 0 : 1);
