@@ -122,6 +122,35 @@ spot changes. The girth comes from width and depth by the August page's fit to
 tape-measured bodies (1.418 w + 1.015 d + 33.52, Ramanujan's ellipse outside it),
 ported as it was (`src/sizing.js`), and BEST's chart from there.
 
+## Where the error is now: the chest's shape
+
+With the scale at about one per cent, it is no longer what decides the size.
+A girth worked out from one width and one depth has to assume the shape in
+between, and ANSUR II (the US Army's 2012 survey: 4,082 men and 1,986 women,
+tape and calipers, public domain) says what that costs even when the width and
+depth are exact (`sim/girth_ansur.py`, ten-fold cross-validated):
+
+| girth from | error SD | mean miss | men | women |
+|---|---:|---:|---:|---:|
+| breadth and depth, best straight line | 3.64 cm | 2.92 cm | −1.7 cm | +3.4 cm |
+| the same, and height (which the hops now give) | 3.37 cm | 2.69 cm | −1.2 cm | +2.5 cm |
+
+So: about ±3.5 cm whatever the scale — the August page's asserted 4 per cent
+was about right — and most of what is left is that the same width and depth
+make a different girth on a man and on a woman. Height helps a little. The page
+keeps the August line rather than one fitted here, because ANSUR's calipers on
+skin are not the page's silhouettes on clothes (the August line reads 3 cm low on
+ANSUR, consistent with its having been fitted to silhouettes); the field rows
+(`FIELD.md`) are what can settle it.
+
+The way past it is not a better guess at the shape but not guessing: a tape
+follows the chest's convex outline, and by Cauchy's formula that outline's
+length is π times its mean width over a half turn. A slow quarter turn,
+measured on every frame against a scale that is now right, arrives at the
+tape rather than estimating it. The August page built that and hid it behind
+`?turn=1`, because without a scale it had nothing to multiply the widths by;
+it is the next thing to bring across.
+
 ## The second ruler: the eyes
 
 The iris is 11.7 mm across in nearly every adult (11.71 ± 0.42 mm, Rüfer and
