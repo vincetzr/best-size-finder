@@ -261,6 +261,28 @@ the scale, with the margin it deserves (`src/iris.js`).
   a distance is no use without the camera's focal length, which browsers do not
   give either. Gravity makes both unnecessary.
 
+## On real bodies
+
+Two public datasets of real people test the chest part (`test/real/`); neither has hops, so the
+scale is taken from each person's measured height or from the scan itself.
+
+- **BodyM** (Amazon; 2,505 people, front and side silhouettes from phone photos, chest from a 3D
+  scan). The people stand with their arms near the body, so the chest is clear of the arms in the
+  front view in only a few per cent of photos at chest height — the reason the page asks for arms
+  out. Where it is clear, the page's width-and-depth line misses by 4.0 cm on average (testB) and
+  7.7 cm (testA). The best two-picture result here, a model learned from both outlines and height,
+  misses by 2.5–3.2 cm: two pictures cannot get near 1 cm on real bodies.
+- **NOMO-3d-400** (356 people scanned in tight underwear, with the scanner's own chest or bust
+  girth). Cutting each scan at the scanner's bust height and turning it in front of the page's
+  camera, on the 177 women (the men's chest height is not recorded): the chest's outline, which a
+  perfect turn reads, agrees with the scanner's bust girth to 0.39 cm on average (97 per cent within
+  1 cm); a half turn (180°) through the camera to 0.62 cm (89 per cent); the page's quarter turn to
+  0.90 cm (70 per cent). The quarter turn loses to the half because a real chest is not the same on
+  both sides. The width-and-depth line reads 10.1 cm high on these bare bodies.
+
+These are perfect outlines. On a customer, the scale (about 2 per cent now), the outline's edges,
+clothing and breathing add to them.
+
 ## What has been shown, and what has not
 
 Shown, by the tests in this repository: that the arithmetic is right on every
