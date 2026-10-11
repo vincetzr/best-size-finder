@@ -16,6 +16,13 @@ front views. There are no hops, so each person's measured height sets the scale 
     bash ../bodym_fetch.sh                       # about 9,000 small PNGs, from s3://amazon-bodym
     for s in train testA testB; do python3 ../bodym_profiles.py $s; done
     python3 ../bodym_evaluate.py                 # trains on train, scores testA and testB
+    python3 ../bodym_gallery.py                  # each person's numbers, and their outlines drawn with what was measured
+
+Every drawing was checked by eye (October 2026). In 117 of the 487 people a mistake changes the
+measurement: 84 broken outlines (most often the feet cut off at the bottom of the side photo, which
+throws the scale), 14 lines that take in part of an arm (a pinhole at the armpit can pass for a gap),
+11 lines that miss the fullest part of the chest (a fixed 72% of height does not suit everyone), and
+6 usable photos skipped. Without them the learned model's error is 2.8 cm and the formula's 4.3 cm.
 
 ## NOMO-3d-400: the quarter turn, on 356 real body scans
 
