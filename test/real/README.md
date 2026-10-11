@@ -35,11 +35,15 @@ the men's chest girth depends mostly on where it is cut, which their files do no
 | Test | Mean error | Within 1 cm |
 |---|---|---|
 | BodyM, the page's width-and-depth formula (photos where the chest is clear of the arms) | 4.0 cm (testB), 7.7 cm (testA) | 7–16% |
-| BodyM, a model learned from both outlines and height (best two-picture result here) | 2.5 cm (testA), 3.2 cm (testB) | 21–33% |
+| BodyM, a simple model learned from both outlines and height (Amazon's own network: 1.9 cm on testA) | 2.5 cm (testA), 3.2 cm (testB) | 21–33% |
 | NOMO women, the chest's outline (what a perfect turn reads) | 0.39 cm | 97% |
 | NOMO women, half turn (180°) through the page's camera | 0.62 cm | 89% |
 | NOMO women, quarter turn (90°), as the page does it | 0.90 cm | 70% |
 | NOMO women, the page's width-and-depth formula | 10.1 cm (always high) | 0% |
 
-The scans are perfect outlines: no camera noise, no clothing, no breathing, and the scale is exact.
-On a real customer those add to the turn's error (`HOW-IT-MEASURES.md`).
+The scans are perfect outlines, turned on a computer with every angle and the scale known exactly,
+and checked against the scanner's own bust number, not a tape. The quarter turn moves about 0.2 cm
+for each degree the customer starts off square, which is most of its gap to the half turn; the page
+cannot yet read an angle past 90°. Two cuts caught part of an arm and are counted in the averages.
+On a real customer, camera noise, clothing, breathing and the scale add to the turn's error
+(`HOW-IT-MEASURES.md`).

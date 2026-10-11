@@ -270,18 +270,24 @@ scale is taken from each person's measured height or from the scan itself.
   scan). The people stand with their arms near the body, so the chest is clear of the arms in the
   front view in only a few per cent of photos at chest height — the reason the page asks for arms
   out. Where it is clear, the page's width-and-depth line misses by 4.0 cm on average (testB) and
-  7.7 cm (testA). The best two-picture result here, a model learned from both outlines and height,
-  misses by 2.5–3.2 cm: two pictures cannot get near 1 cm on real bodies.
+  7.7 cm (testA). A simple model learned from both outlines and height misses by 2.5–3.2 cm, no
+  better than guessing from sex, height and weight (2.8–3.1 cm); Amazon's own network, with the same
+  outlines and height, reaches 1.9 cm on testA. Two pictures do not reach 1 cm on real bodies.
 - **NOMO-3d-400** (356 people scanned in tight underwear, with the scanner's own chest or bust
   girth). Cutting each scan at the scanner's bust height and turning it in front of the page's
   camera, on the 177 women (the men's chest height is not recorded): the chest's outline, which a
   perfect turn reads, agrees with the scanner's bust girth to 0.39 cm on average (97 per cent within
   1 cm); a half turn (180°) through the camera to 0.62 cm (89 per cent); the page's quarter turn to
-  0.90 cm (70 per cent). The quarter turn loses to the half because a real chest is not the same on
-  both sides. The width-and-depth line reads 10.1 cm high on these bare bodies.
+  0.90 cm (70 per cent). The quarter turn loses to the half mostly because it needs the customer to
+  start square to the camera — each degree off moves it about 0.2 cm, and scanned people stand a
+  degree or two turned — and partly because a chest is not quite the same on both sides; a half turn
+  needs neither, though the page cannot yet read an angle past 90°. Two cuts caught part of an arm
+  (11.5 and 14.3 cm out) and are counted. The width-and-depth line reads 10.1 cm high on these bare
+  bodies.
 
-These are perfect outlines. On a customer, the scale (about 2 per cent now), the outline's edges,
-clothing and breathing add to them.
+These are perfect outlines, turned on a computer with every angle and the scale known exactly, and
+checked against the scanner's own bust number, not a tape. On a customer, the scale (about 2 per
+cent now), reading the angle, the outline's edges, clothing and breathing add to them.
 
 ## What has been shown, and what has not
 
