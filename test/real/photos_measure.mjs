@@ -19,7 +19,7 @@ import { girthFromWidthDepth } from '../../src/sizing.js';
 
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const dir = path.resolve(process.argv[2]);
-const people = JSON.parse(fs.readFileSync(path.join(dir, 'people.json'), 'utf8')).filter((p) => !p.sameAs);
+const people = JSON.parse(fs.readFileSync(path.join(dir, 'people.json'), 'utf8')).filter((p) => !p.sameAs && p.age >= 18);
 
 const { server, port } = await serve(repo, dir);
 const browser = await chromium.launch();

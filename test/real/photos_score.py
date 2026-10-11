@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 out = os.path.realpath(sys.argv[1])
-people = [p for p in json.load(open(os.path.join(out, "people.json"))) if not p["sameAs"]]
+people = [p for p in json.load(open(os.path.join(out, "people.json"))) if not p["sameAs"] and p["age"] >= 18]
 page = {r["key"]: r for r in json.load(open(os.path.join(out, "page_results.json")))}
 
 
@@ -86,9 +86,9 @@ def show(k, sel=lambda r: True):
             f"  right size {100 * np.clip(1 - np.abs(e) / 4, 0, None).mean():3.0f}%  size or next {100 * np.clip(2 - np.abs(e) / 4, 0, 1).mean():3.0f}%")
 
 
-print(len(rows), "people;", sum(r["page"] is not None for r in rows), "measured by the page;", sum(r["chestFlag"] for r in rows), "tape values to be reviewed")
+print(len(rows), "adults;", sum(r["page"] is not None for r in rows), "measured by the page;", sum(r["chestFlag"] for r in rows), "tape values tagged _tbr")
 for k in ["page", "forced", "heightWeight", "learned"]:
     print(show(k))
-print("without the values to be reviewed:")
+print("without the values tagged _tbr:")
 for k in ["heightWeight", "learned"]:
     print(show(k, lambda r: not r["chestFlag"]))

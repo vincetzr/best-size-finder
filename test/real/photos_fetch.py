@@ -8,9 +8,10 @@ weight guess is fitted on.
   repository.
 - ANSUR II (US Army, public domain), for the height + weight lines.
 
-Writes <folder>/people.json: one entry per person, with the dataset's tape chest, height, weight and
-sex, and "sameAs" for a person whose photos are byte for byte another's (three of Unidata's six are
-UniqueData's). Values the dataset marks "_tbr" (to be reviewed) are kept, flagged.
+Writes <folder>/people.json: one entry per person, with the dataset's tape chest, height, weight, sex
+and age, and "sameAs" for a person whose photos are byte for byte another's (three of Unidata's six are
+UniqueData's). Values the dataset tags "_tbr" (unexplained; perhaps "to be reviewed") are kept, flagged.
+Two of UniqueData's people are children; the other scripts leave out anyone under 18.
 """
 import csv
 import hashlib
@@ -65,12 +66,13 @@ for p in people:
     m = p.pop("m")
     chest, flag = num(m["chest_circumference_cm"])
     p.update(key=f"{p['source'].lower()}-{p['id']:02d}", chest=chest, chestFlag=flag, height=num(m["height"])[0],
-             weight=num(m["weight"])[0], female=m["gender"] == "female",
+             weight=num(m["weight"])[0], female=m["gender"] == "female", age=int(num(m["age"])[0]),
              front=f"{p.pop('dir')}/front_img.jpg")
     p["side"] = p["front"].replace("front_img", "side_img")
     digest = hashlib.sha256(b"".join(open(os.path.join(out, p[v]), "rb").read() for v in ("front", "side"))).hexdigest()
     p["sameAs"] = seen.get(digest)
     seen.setdefault(digest, p["key"])
 json.dump(people, open(os.path.join(out, "people.json"), "w"), indent=1)
-print(len(people), "entries;", sum(p["sameAs"] is None for p in people), "different people;",
-      sum(p["chestFlag"] for p in people if p["sameAs"] is None), "chest values marked to be reviewed")
+use = [p for p in people if p["sameAs"] is None and p["age"] >= 18]
+print(len(people), "entries;", sum(p["sameAs"] is None for p in people), "different people;", len(use), "adults;",
+      sum(p["chestFlag"] for p in use), "of their chest values tagged _tbr")

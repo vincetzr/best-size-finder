@@ -52,6 +52,11 @@ So every row collects both.
    their three answers is the repeatability, which no tape can give. If anyone
    has a plain and a patterned top to hand, once in each is the most direct
    test there is of the step above.
+5. Watch the yellow chest line during the turn. Side on, the page puts it at the
+   front picture's height above the heel, and on real phone photos
+   (`test/real/`) the pose model often put the heel point at the ankle in side
+   views, which lifts the line. Note anyone on whom it sits clearly above the
+   fullest part of the chest.
 
 Twenty people of different builds is enough to see whether the method works;
 fifty to quote a number.
