@@ -1,9 +1,10 @@
 # Tests on real bodies
 
-The page has not yet been tried on people in a shop (`FIELD.md`). These two tests use public data
-of real people instead. Neither dataset is in this repository: both are free to download but limited
-to research use (BodyM: CC BY-NC 4.0; NOMO-3d-400: scientific research only), so they are for
-measuring the method, not for building anything that ships.
+The page has not yet been tried on people in a shop (`FIELD.md`). These tests use public data of
+real people instead. None of the data is in this repository: all of it is free to download but
+limited to research or non-commercial use (BodyM: CC BY-NC 4.0; NOMO-3d-400: scientific research only;
+the phone photos: CC BY-NC-ND 4.0), so it is for measuring the method, not for building anything
+that ships.
 
 ## BodyM: the two pictures, on 2,505 real people
 
@@ -37,16 +38,38 @@ the silhouette's width at each angle, girth = π × the mean width.
 Only the women's scans give the height of the scanner's bust line, so only they make a clean test;
 the men's chest girth depends mostly on where it is cut, which their files do not say.
 
+## Real phone photos: 24 people, front and side, with a tape chest
+
+The only real photos with a tape chest we found free to download: two small samples on Hugging Face
+(UniqueData, 21 people; Unidata, 6, three of whom are UniqueData's), CC BY-NC-ND 4.0. People took
+their own photos at home, arms down by their sides, in everyday clothes, the phone usually low and
+tilted up; they, or someone with them, measured the chest with a tape. No hops and no turn, so the
+page's own method cannot run: each person's stated height stands in for the ruler.
+
+    python3 -I photos_fetch.py photos                # the two samples and ANSUR II, into ./photos
+    node photos_measure.mjs photos                   # the page's pose model and measuring code
+    python3 -I photos_score.py photos [bodym]        # each method against the tape
+
+The page refuses all 24, rightly: the arms touch the body at chest height in every front photo, and
+two side photos cut off the top of the head. Its formula forced onto those numbers reads 31 cm high,
+because the arms are counted as chest. Height and weight alone, the questions size websites ask
+(lines fitted on ANSUR II), miss by 3.6 cm on average. The model learned on BodyM's outlines misses by
+10.7 cm, mostly high: BodyM's people wore tight clothes, these people loose ones.
+
 ## Results (October 2026)
 
 | Test | Mean error | Within 1 cm |
 |---|---|---|
-| BodyM, the page's width-and-depth formula (photos where the chest is clear of the arms) | 4.0 cm (testB), 7.7 cm (testA) | 7–16% |
+| BodyM, the page's width-and-depth formula (photos where the chest is clear of the arms) | 4.0 cm (testB), 7.7 cm (testA) | 7–15% |
 | BodyM, a simple model learned from both outlines and height (Amazon's own network: 1.9 cm on testA) | 2.5 cm (testA), 3.2 cm (testB) | 21–33% |
 | NOMO women, the chest's outline (what a perfect turn reads) | 0.39 cm | 97% |
 | NOMO women, half turn (180°) through the page's camera | 0.62 cm | 89% |
 | NOMO women, quarter turn (90°), as the page does it | 0.90 cm | 70% |
 | NOMO women, the page's width-and-depth formula | 10.1 cm (always high) | 0% |
+| Real photos (24 people), the page | refused all 24 (arms down, no hops) | – |
+| Real photos, the page's formula forced on them | 31 cm (always high) | 0% |
+| Real photos, height + weight only (what size websites ask) | 3.6 cm | 17% |
+| Real photos, the model learned on BodyM | 10.7 cm (22 people) | 0% |
 
 The scans are perfect outlines, turned on a computer with every angle and the scale known exactly,
 and checked against the scanner's own bust number, not a tape. The quarter turn moves about 0.2 cm

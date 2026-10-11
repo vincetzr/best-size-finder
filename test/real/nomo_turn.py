@@ -112,9 +112,11 @@ def turn_girth(H, bins=12, span=90.0):
 
 
 def august(w, d):
+    """The page's girthFromWidthDepth (src/sizing.js): its line inside its box, else its Ramanujan ellipse x 1.177."""
     a, b = w / 2, d / 2
-    ram = math.pi * (3 * (a + b) - math.sqrt((3 * a + b) * (a + 3 * b)))
-    if 22 <= w <= 48 and 16 <= d <= 36:
+    h = (a - b) ** 2 / (a + b) ** 2
+    ram = math.pi * (a + b) * (1 + 3 * h / (10 + math.sqrt(4 - 3 * h)))
+    if 24 <= w <= 62 and 13 <= d <= 44:
         return 1.418 * w + 1.015 * d + 33.52
     return 1.177 * ram
 

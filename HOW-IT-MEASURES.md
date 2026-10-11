@@ -263,7 +263,7 @@ the scale, with the margin it deserves (`src/iris.js`).
 
 ## On real bodies
 
-Two public datasets of real people test the chest part (`test/real/`); neither has hops, so the
+Three public datasets of real people test the chest part (`test/real/`); none has hops, so the
 scale is taken from each person's measured height or from the scan itself.
 
 - **BodyM** (Amazon; 2,505 people, front and side silhouettes from phone photos, chest from a 3D
@@ -284,6 +284,10 @@ scale is taken from each person's measured height or from the scan itself.
   needs neither, though the page cannot yet read an angle past 90°. Two cuts caught part of an arm
   (11.5 and 14.3 cm out) and are counted. The width-and-depth line reads 10.1 cm high on these bare
   bodies.
+- **Phone photos** (two free samples, 24 people, front and side photos taken at home in everyday
+  clothes, chest by their own tape). The arms hang against the body and two side photos cut off the
+  head, so the page refuses all 24. Forced, its width-and-depth line reads 31 cm high, the arms
+  counted as chest. Sex, height and weight alone miss by 3.6 cm.
 
 These are perfect outlines, turned on a computer with every angle and the scale known exactly, and
 checked against the scanner's own bust number, not a tape. On a customer, the scale (about 2 per

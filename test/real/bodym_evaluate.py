@@ -12,9 +12,11 @@ FR = list(np.round(S["train"]["fracs"], 2))
 
 
 def august(w, d):
+    """The page's girthFromWidthDepth (src/sizing.js): its line inside its box, else its Ramanujan ellipse x 1.177."""
     a, b = w / 2, d / 2
-    ram = np.pi * (3 * (a + b) - np.sqrt((3 * a + b) * (a + 3 * b)))
-    inside = (w >= 22) & (w <= 48) & (d >= 16) & (d <= 36)
+    h = (a - b) ** 2 / (a + b) ** 2
+    ram = np.pi * (a + b) * (1 + 3 * h / (10 + np.sqrt(4 - 3 * h)))
+    inside = (w >= 24) & (w <= 62) & (d >= 13) & (d <= 44)
     return np.where(inside, 1.418 * w + 1.015 * d + 33.52, 1.177 * ram)
 
 
