@@ -277,17 +277,21 @@ scale is taken from each person's measured height or from the scan itself.
   girth). Cutting each scan at the scanner's bust height and turning it in front of the page's
   camera, on the 177 women (the men's chest height is not recorded): the chest's outline, which a
   perfect turn reads, agrees with the scanner's bust girth to 0.39 cm on average (97 per cent within
-  1 cm); a half turn (180°) through the camera to 0.62 cm (89 per cent); the page's quarter turn to
-  0.90 cm (70 per cent). The quarter turn loses to the half mostly because it needs the customer to
+  1 cm); a half turn (180°) through the camera to 0.68 cm (86 per cent); the page's quarter turn to
+  0.94 cm (68 per cent). The quarter turn loses to the half mostly because it needs the customer to
   start square to the camera — each degree off moves it about 0.2 cm, and scanned people stand a
   degree or two turned — and partly because a chest is not quite the same on both sides; a half turn
   needs neither, though the page cannot yet read an angle past 90°. Two cuts caught part of an arm
-  (11.5 and 14.3 cm out) and are counted. The width-and-depth line reads 10.1 cm high on these bare
-  bodies.
+  (13.4 and 14.2 cm out) and are counted. The width-and-depth line reads 8.9 cm high on these bare
+  bodies. (Until November 2026 the test's camera stood behind each person, who face the other way in
+  the scans; that gave 0.62 and 0.90 cm and a line 10.1 cm high.)
 - **Phone photos** (two free samples, 22 adults, front and side photos taken at home in everyday
-  clothes, chest by tape). The arms hang against the body, so the page refuses all 22. Forced, its
-  width-and-depth line reads 31 cm high, the arms counted as chest. Sex, height and weight alone miss
-  by 3.2 cm. On many side photos the pose model's heel point sits at the ankle, not the floor.
+  clothes, chest by tape). The arms hang against the body, so the page refuses 21 or 22 of the 22:
+  the pose model's outline differs a little between runs on the graphics chip and the processor, and
+  in one run a man got through with an arm still inside his width (the arms check passed by 0.2 cm)
+  and read 21 cm high. Forced, its width-and-depth line reads 31 cm high, the arms counted as chest.
+  Sex, height and weight alone miss by 3.2 cm. On many side photos the pose model's heel point sits at
+  the ankle, not the floor.
 
 These are perfect outlines, turned on a computer with every angle and the scale known exactly, and
 checked against the scanner's own bust number, not a tape. On a customer, the scale (about 2 per

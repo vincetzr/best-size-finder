@@ -103,7 +103,9 @@ def turn_girth(H, bins=12, span=90.0):
         th = math.radians((k + 0.5) * span / bins)
         c, s = math.cos(th), math.sin(th)
         x = H[:, 0] * c - H[:, 1] * s
-        zz = H[:, 0] * s + H[:, 1] * c + DIST
+        # the scanned people face +z (their toes point that way), so the camera stands at z = +DIST,
+        # in front of them, as the customer faces the tablet
+        zz = DIST - (H[:, 0] * s + H[:, 1] * c)
         u = F * x / zz
         lo, hi = u.min(), u.max()
         across = (hi - lo) / math.hypot(1, (lo + hi) / 2 / F)

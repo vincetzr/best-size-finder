@@ -14,7 +14,7 @@ away from the body, not out to the sides as the page asks, so their arms cover t
 front views. There are no hops, so each person's measured height sets the scale instead.
 
     mkdir bodym && cd bodym
-    bash ../bodym_fetch.sh                       # about 9,000 small PNGs, from s3://amazon-bodym
+    bash ../bodym_fetch.sh                       # about 18,000 small PNGs and 9 CSVs, from s3://amazon-bodym
     for s in train testA testB; do python3 ../bodym_profiles.py $s; done
     python3 ../bodym_evaluate.py                 # trains on train, scores testA and testB
     python3 ../bodym_gallery.py                  # each person's numbers, and their outlines drawn with what was measured
@@ -51,8 +51,11 @@ person's stated height stands in for the ruler.
     node photos_measure.mjs photos                   # the page's pose model and measuring code
     python3 -I photos_score.py photos [bodym]        # each method against the tape
 
-The page refuses all 22, rightly: the arms touch the body at chest height in every front photo, one
-side photo cuts off the top of the head and one hides the far foot. Its formula forced onto those
+The page refuses 21 or 22 of the 22, rightly: the arms touch the body at chest height in every front
+photo, one side photo cuts off the top of the head and one hides the far foot. Which it is depends on
+the run: the pose model's outlines differ a little between its graphics-chip and processor paths, and
+in one run a man got through with an arm still inside his width (the arms check, 1.3 shoulder spans,
+passed by 0.2 cm) and was read 21 cm high. Its formula forced onto those
 numbers reads 31 cm high, because the arms are counted as chest. Height and weight alone, the
 questions size websites ask (lines fitted on ANSUR II), miss by 3.2 cm on average. The model learned
 on BodyM's outlines misses by 10.5 cm, mostly high: BodyM's people wore tight clothes, these people
@@ -66,10 +69,10 @@ page places its side chest line from that point (`FIELD.md`).
 | BodyM, the page's width-and-depth formula (photos where the chest is clear of the arms) | 4.0 cm (testB), 7.7 cm (testA) | 7–15% |
 | BodyM, a simple model learned from both outlines and height (Amazon's own network: 1.9 cm on testA) | 2.5 cm (testA), 3.2 cm (testB) | 21–33% |
 | NOMO women, the chest's outline (what a perfect turn reads) | 0.39 cm | 97% |
-| NOMO women, half turn (180°) through the page's camera | 0.62 cm | 89% |
-| NOMO women, quarter turn (90°), as the page does it | 0.90 cm | 70% |
-| NOMO women, the page's width-and-depth formula | 10.1 cm (always high) | 0% |
-| Real photos (22 adults), the page | refused all 22 (arms down, no hops) | – |
+| NOMO women, half turn (180°) through the page's camera | 0.68 cm | 86% |
+| NOMO women, quarter turn (90°), as the page does it | 0.94 cm | 68% |
+| NOMO women, the page's width-and-depth formula | 8.9 cm (always high) | 0% |
+| Real photos (22 adults), the page | refused 21–22 of 22 (arms down, no hops); the one it took read 21 cm high | – |
 | Real photos, the page's formula forced on them | 31 cm (20 people, always high) | 0% |
 | Real photos, height + weight only (what size websites ask) | 3.2 cm | 18% |
 | Real photos, the model learned on BodyM | 10.5 cm (20 people) | 0% |
@@ -78,5 +81,7 @@ The scans are perfect outlines, turned on a computer with every angle and the sc
 and checked against the scanner's own bust number, not a tape. The quarter turn moves about 0.2 cm
 for each degree the customer starts off square, which is most of its gap to the half turn; the page
 cannot yet read an angle past 90°. Two cuts caught part of an arm and are counted in the averages.
+Until November 2026 the script's camera stood behind each person (the scans face +z); with it in
+front, as here, the half and quarter turns read 0.06 and 0.04 cm worse and the formula 1.2 cm less high.
 On a real customer, camera noise, clothing, breathing and the scale add to the turn's error
 (`HOW-IT-MEASURES.md`).

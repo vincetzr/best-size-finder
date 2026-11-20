@@ -1,7 +1,12 @@
 #!/bin/bash
-# Download every BodyM silhouette (front: mask/, side: mask_left/) for the three splits.
-# run from the folder that should hold the data: bash bodym_fetch.sh
+# Download every BodyM silhouette (front: mask/, side: mask_left/) and the three CSVs
+# bodym_profiles.py reads, for the three splits.
+# run from the folder that should hold the data: bash bodym_fetch.sh (again, if a count comes up short)
 for s in testA testB train; do
+  mkdir -p $s
+  for f in hwg_metadata.csv measurements.csv subject_to_photo_map.csv; do
+    [ -s "$s/$f" ] || curl -sS -m 120 --retry 3 -o "$s/$f" "https://amazon-bodym.s3.amazonaws.com/$s/$f"
+  done
   for v in mask mask_left; do
     mkdir -p $s/$v
     python3 - "$s/$v/" > $s/$v.keys <<'PY'
